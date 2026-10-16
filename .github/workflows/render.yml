@@ -1,0 +1,74 @@
+# Render worker: triggered by the Render API (workflow_dispatch), renders one Short, posts it back.
+# Repo secrets: API_URL (Render URL, no trailing slash), WORKER_TOKEN (same as on Render)
+name: render
+run-name: render ${{ inputs.job_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash  # -eo pipefail: a failed render isn't hidden by `| tee`
+    env:
+      API: ${{ secrets.API_URL }}/jobs/${{ inputs.job_id }}
+      CURL: curl -fsS --retry 5 --retry-all-errors --retry-delay 10  # Render free can be slow to wake
+    steps:
+      - name: Mark rendering
+        env: { TOKEN: "${{ secrets.WORKER_TOKEN }}" }
+        run: $CURL -X POST -H "X-Worker-Token: $TOKEN" -F status=rendering "$API/status"
+
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: worker-requirements.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: editor/package-lock.json
+
+      - name: Install deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-noto-color-emoji
+          pip install -q -r worker-requirements.txt
+          npm ci --prefix editor --no-audit --no-fund
+
+      - name: Download job
+        env: { TOKEN: "${{ secrets.WORKER_TOKEN }}" }
+        run: |
+          $CURL -H "X-Worker-Token: $TOKEN" "$API/input.zip" -o input.zip
+          unzip -q input.zip -d job
+
+      - name: Render
+        run: python make_short.py --job job 2>&1 | tee render.log
+
+      - name: Upload result
+        env: { TOKEN: "${{ secrets.WORKER_TOKEN }}" }
+        run: $CURL -X POST -H "X-Worker-Token: $TOKEN" -F video=@job/out.mp4 -F "meta=<job/out.json" "$API/result"
+
+      - name: Report failure
+        if: failure()
+        env:
+          TOKEN: ${{ secrets.WORKER_TOKEN }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          $CURL -X POST -H "X-Worker-Token: $TOKEN" -F status=error \
+            --form-string "error=Render failed. Log: $RUN" \
+            --form-string "log=$(tail -c 1500 render.log 2>/dev/null)" "$API/status"

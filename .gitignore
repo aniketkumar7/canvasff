@@ -1,0 +1,8 @@
+node_modules/
+__pycache__/
+.venv/
+input/
+music/
+output/
+editor/public/job/
+*.log

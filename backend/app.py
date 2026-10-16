@@ -1,0 +1,182 @@
+"""CanvasFF API (Render). Stores uploads, triggers the GitHub Actions render, serves the result.
+
+Flow: web POST /jobs -> GitHub workflow_dispatch -> worker GETs /jobs/{id}/input.zip, renders,
+POSTs /jobs/{id}/result -> web polls GET /jobs/{id} and plays /jobs/{id}/video.mp4
+
+Env: GH_REPO (owner/repo), GH_TOKEN (fine-grained PAT, Actions: read+write), WORKER_TOKEN (shared with
+the workflow), FRONTEND_ORIGIN (Vercel URL, default *), DATA_DIR (default /tmp/canvasff).
+Render's free disk is wiped on restart/deploy, so download your video once it's done.
+"""
+import hmac, json, os, pathlib, re, shutil, time, urllib.request, uuid, zipfile
+
+from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+
+DATA = pathlib.Path(os.environ.get("DATA_DIR", "/tmp/canvasff"))
+GH_REPO, GH_TOKEN = os.environ.get("GH_REPO", ""), os.environ.get("GH_TOKEN", "")
+WORKER_TOKEN = os.environ.get("WORKER_TOKEN", "")
+MEDIA = {".jpg", ".jpeg", ".png", ".webp", ".mp4", ".mov", ".mkv", ".webm"}
+SONGS = {".mp3", ".wav", ".m4a"}
+MAX_FILE = 200 << 20  # per upload
+MAX_ACTIVE = 3        # queued + rendering at once (each costs GitHub Actions minutes)
+STALE = 40 * 60       # no word from the worker for this long -> error (run never started / died)
+KEEP = 6 * 3600       # delete jobs older than this (Render's free disk is small)
+
+app = FastAPI(title="CanvasFF")
+app.add_middleware(CORSMiddleware, allow_origins=os.environ.get("FRONTEND_ORIGIN", "*").split(","),
+                   allow_methods=["*"], allow_headers=["*"])
+
+
+def job_dir(job_id):
+    if not re.fullmatch(r"[0-9a-f]{32}", job_id) or not (DATA / job_id).is_dir():
+        raise HTTPException(404, "job not found (the server may have restarted)")
+    return DATA / job_id
+
+
+def state(d, **update):
+    f = d / "job.json"
+    s = json.loads(f.read_text(encoding="utf-8")) if f.exists() else {}
+    if not update and s.get("status") in ("queued", "rendering") and time.time() - s["updated"] > STALE:
+        update = {"status": "error", "error": f"No word from the GitHub worker for {STALE // 60} min. "
+                                              f"Check https://github.com/{GH_REPO}/actions"}
+    if update:
+        s.update(update, updated=time.time())
+        f.write_text(json.dumps(s, ensure_ascii=False), encoding="utf-8")
+    return s
+
+
+def worker(token):
+    if not WORKER_TOKEN or not hmac.compare_digest(token or "", WORKER_TOKEN):
+        raise HTTPException(401, "bad worker token")
+
+
+def save(upload, dest, limit=MAX_FILE):
+    size = 0
+    with dest.open("wb") as f:
+        while chunk := upload.file.read(1 << 20):
+            size += len(chunk)
+            if size > limit:
+                raise HTTPException(413, f"{upload.filename} is over {limit >> 20} MB")
+            f.write(chunk)
+
+
+def sweep():
+    """Drop old jobs; return how many are still queued/rendering."""
+    active = 0
+    for d in DATA.glob("*/"):
+        s = state(d)
+        if time.time() - s.get("created", 0) > KEEP:
+            shutil.rmtree(d, ignore_errors=True)
+        elif s.get("status") in ("queued", "rendering"):
+            active += 1
+    return active
+
+
+def dispatch(job_id):
+    req = urllib.request.Request(
+        f"https://api.github.com/repos/{GH_REPO}/actions/workflows/render.yml/dispatches",
+        data=json.dumps({"ref": "main", "inputs": {"job_id": job_id}}).encode(), method="POST",
+        headers={"Authorization": f"Bearer {GH_TOKEN}", "Accept": "application/vnd.github+json"})
+    urllib.request.urlopen(req, timeout=15).close()
+
+
+@app.get("/health")
+def health():
+    return {"ok": True}
+
+
+@app.post("/jobs")
+def create_job(name: str = Form(..., max_length=40), kind: str = Form("car"), length: float = Form(17),
+               focus: str = Form(""), credit: str = Form("", max_length=600),
+               media: list[UploadFile] = File(...), song: UploadFile = File(...)):
+    name = name.strip()
+    if not name or kind not in ("car", "plane") or not 10 <= length <= 30:
+        raise HTTPException(422, "need a name, kind car/plane and length 10-30s")
+    if not 1 <= len(media) <= 10:
+        raise HTTPException(422, "upload 1-10 clips or photos")
+    song_ext = pathlib.Path(song.filename or "").suffix.lower()
+    if song_ext not in SONGS:
+        raise HTTPException(422, "song must be mp3, wav or m4a")
+    exts = [pathlib.Path(m.filename or "").suffix.lower() for m in media]
+    if any(e not in MEDIA for e in exts):
+        raise HTTPException(422, "clips/photos must be jpg, png, webp, mp4, mov, mkv or webm")
+    try:
+        fx, fy = (min(max(float(v), 0), 1) for v in focus.split(",")) if focus else (0.5, 0.5)
+    except ValueError:
+        raise HTTPException(422, "focus must be 'x,y' between 0 and 1")
+
+    DATA.mkdir(parents=True, exist_ok=True)
+    if sweep() >= MAX_ACTIVE:
+        raise HTTPException(429, f"{MAX_ACTIVE} Shorts are already rendering, wait for one to finish")
+
+    job_id = uuid.uuid4().hex
+    d = DATA / job_id
+    (d / "media").mkdir(parents=True)
+    state(d, id=job_id, name=name, status="uploading", created=time.time())  # so sweep() keeps it
+    try:
+        for i, (m, e) in enumerate(zip(media, exts)):
+            save(m, d / "media" / f"{i}{e}")
+        save(song, d / f"song{song_ext}", 50 << 20)
+    except BaseException:
+        shutil.rmtree(d, ignore_errors=True)
+        raise
+    (d / "meta.json").write_text(json.dumps(
+        {"name": name, "kind": kind, "length": length, "focus": [fx, fy],
+         "song": pathlib.Path(song.filename).stem, "credit": credit.strip()}, ensure_ascii=False), encoding="utf-8")
+    state(d, status="queued")
+    try:
+        dispatch(job_id)
+    except Exception as e:  # surfaced to the page instead of a job stuck on "queued"
+        state(d, status="error", error=f"could not start GitHub render: {e}")
+    return state(d)
+
+
+@app.get("/jobs/{job_id}")
+def get_job(job_id: str):
+    return state(job_dir(job_id))
+
+
+@app.get("/jobs/{job_id}/video.mp4")
+def video(job_id: str):
+    f = job_dir(job_id) / "out.mp4"
+    if not f.exists():
+        raise HTTPException(404, "not rendered yet")
+    return FileResponse(f, media_type="video/mp4", filename=f"{state(f.parent).get('name', 'short')}.mp4")
+
+
+# ---- worker (GitHub Actions) endpoints ----
+
+@app.get("/jobs/{job_id}/input.zip")
+def job_input(job_id: str, x_worker_token: str = Header(None)):
+    worker(x_worker_token)
+    d = job_dir(job_id)
+    z = d / "input.zip"
+    with zipfile.ZipFile(z, "w", zipfile.ZIP_STORED) as zf:
+        for f in [d / "meta.json", *d.glob("song.*"), *(d / "media").iterdir()]:
+            zf.write(f, f.relative_to(d))
+    return FileResponse(z)
+
+
+@app.post("/jobs/{job_id}/status")
+def job_status(job_id: str, status: str = Form(...), error: str = Form(""), log: str = Form(""),
+               x_worker_token: str = Header(None)):
+    worker(x_worker_token)
+    if status not in ("rendering", "error"):
+        raise HTTPException(422, "status must be rendering or error")
+    return state(job_dir(job_id), status=status, error=error, log=log)
+
+
+@app.post("/jobs/{job_id}/result")
+def job_result(job_id: str, video: UploadFile = File(...), meta: str = Form(...),
+               x_worker_token: str = Header(None)):
+    worker(x_worker_token)
+    d = job_dir(job_id)
+    try:
+        upload = json.loads(meta)
+    except ValueError:
+        raise HTTPException(422, "meta must be JSON")
+    save(video, d / "out.mp4", 500 << 20)
+    shutil.rmtree(d / "media", ignore_errors=True)  # free the small Render disk
+    (d / "input.zip").unlink(missing_ok=True)
+    return state(d, status="done", upload=upload)
