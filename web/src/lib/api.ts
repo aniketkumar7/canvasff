@@ -43,6 +43,20 @@ export function createJob(form: FormData, onProgress: (ratio: number) => void): 
   });
 }
 
+/** A NoCopyrightSounds track (free for Shorts with its credit in the description). */
+export type NcsTrack = { id: string; title: string; artist: string; genre: string; cover: string; url: string };
+export type NcsGenre = "phonk" | "brazilian";
+
+async function json<T>(path: string): Promise<T> {
+  const r = await fetch(`${API}${path}`);
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.detail ?? `API error ${r.status}`);
+  return body as T;
+}
+
+export const getMusic = (genre: NcsGenre) => json<NcsTrack[]>(`/music?genre=${genre}`);
+export const getCredit = (id: string) => json<{ credit: string }>(`/music/${encodeURIComponent(id)}/credit`).then((r) => r.credit);
+
 export async function getJob(id: string): Promise<Job> {
   const r = await fetch(`${API}/jobs/${id}`);
   const body = await r.json().catch(() => ({}));

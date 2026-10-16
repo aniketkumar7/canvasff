@@ -6,7 +6,8 @@ import { StardustSlider } from "./components/StardustSlider";
 import { GenerationFrame, type FrameState } from "./components/GenerationFrame";
 import { FocusPicker, MediaDrop, Section, Segmented, SongDrop, isVideo, useObjectUrl } from "./components/Form";
 import { RecentList, StatusLine, UploadFields } from "./components/Result";
-import { createJob, getJob, JobGone, videoUrl, type Job } from "./lib/api";
+import { MusicLibrary } from "./components/MusicLibrary";
+import { createJob, getCredit, getJob, JobGone, videoUrl, type Job, type NcsTrack } from "./lib/api";
 import { CURRENT, RECENT, remember, store, type Recent } from "./lib/store";
 
 type Kind = "car" | "plane";
@@ -16,6 +17,10 @@ export default function App() {
   const [media, setMedia] = React.useState<File[]>([]);
   const [focus, setFocus] = React.useState<[number, number]>([0.5, 0.5]);
   const [song, setSong] = React.useState<File | null>(null);
+  const [source, setSource] = React.useState<"ncs" | "file">("ncs");
+  const [ncs, setNcs] = React.useState<NcsTrack | null>(null);
+  /** the credit text we filled in for the picked track, so a hand-edited credit is never overwritten */
+  const autoCredit = React.useRef("");
   const [credit, setCredit] = React.useState("");
   const [name, setName] = React.useState("");
   const [kind, setKind] = React.useState<Kind>("car");
@@ -86,7 +91,23 @@ export default function App() {
     if (id) open(id);
   }, [open]);
 
-  const missing = [!media.length && "clips", !song && "a song", !name.trim() && "the answer"].filter(Boolean) as string[];
+  const hasSong = source === "ncs" ? !!ncs : !!song;
+  const missing = [!media.length && "clips", !hasSong && "a song", !name.trim() && "the answer"].filter(Boolean) as string[];
+
+  const pickNcs = (t: NcsTrack | null) => {
+    setNcs(t);
+    const canFill = !credit.trim() || credit === autoCredit.current;
+    if (!t) {
+      if (canFill) setCredit((autoCredit.current = ""));
+      return;
+    }
+    if (!canFill) return;
+    getCredit(t.id)
+      .then((c) => {
+        setCredit((cur) => (!cur.trim() || cur === autoCredit.current ? (autoCredit.current = c) : cur));
+      })
+      .catch(() => {}); // the server adds the credit anyway when the field is empty
+  };
 
   const submit = async () => {
     if (missing.length || busy) return;
@@ -97,7 +118,8 @@ export default function App() {
     fd.append("focus", focus.join(","));
     fd.append("credit", credit);
     media.forEach((f) => fd.append("media", f));
-    fd.append("song", song!);
+    if (source === "ncs") fd.append("song_ncs", ncs!.id);
+    else fd.append("song", song!);
     setError(null);
     setUpload(0);
     setJob({ id: "", name: name.trim(), status: "uploading", created: Date.now() / 1000, updated: 0 });
@@ -163,7 +185,18 @@ export default function App() {
           )}
 
           <Section step={first ? 3 : 2} title="Soundtrack">
-            <SongDrop song={song} onChange={setSong} />
+            <div className="mb-3">
+              <Segmented
+                id="source"
+                value={source}
+                onChange={setSource}
+                options={[
+                  { value: "ncs", label: "NCS library" },
+                  { value: "file", label: "My file" },
+                ]}
+              />
+            </div>
+            {source === "ncs" ? <MusicLibrary value={ncs} onChange={pickNcs} /> : <SongDrop song={song} onChange={setSong} />}
             <label className="mt-4 block">
               <span className="mb-1.5 block text-[11px] font-extrabold tracking-[0.12em] text-muted-foreground uppercase">
                 Music credit <span className="font-semibold normal-case tracking-normal">(optional)</span>
@@ -172,7 +205,7 @@ export default function App() {
                 value={credit}
                 onChange={(e) => setCredit(e.target.value)}
                 rows={3}
-                placeholder="Paste the credit text NCS or the Audio Library asks for. It goes into the description."
+                placeholder={source === "ncs" ? "Filled in when you pick a track." : "Paste the credit text the Audio Library asks for. It goes into the description."}
                 className="w-full resize-y rounded-xl border border-border bg-background/60 px-3 py-2.5 text-[13px] leading-relaxed outline-none placeholder:text-muted-foreground/70 focus:border-accent/60"
               />
             </label>

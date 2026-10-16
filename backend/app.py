@@ -13,6 +13,8 @@ from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
+import ncs
+
 DATA = pathlib.Path(os.environ.get("DATA_DIR", "/tmp/canvasff"))
 GH_REPO, GH_TOKEN = os.environ.get("GH_REPO", ""), os.environ.get("GH_TOKEN", "")
 WORKER_TOKEN = os.environ.get("WORKER_TOKEN", "")
@@ -89,15 +91,29 @@ def health():
 @app.post("/jobs")
 def create_job(name: str = Form(..., max_length=40), kind: str = Form("car"), length: float = Form(17),
                focus: str = Form(""), credit: str = Form("", max_length=600),
-               media: list[UploadFile] = File(...), song: UploadFile = File(...)):
+               media: list[UploadFile] = File(...), song: UploadFile | None = File(None),
+               song_ncs: str = Form("", max_length=80)):
     name = name.strip()
+    credit = credit.replace("\r\n", "\n")  # browsers send textarea lines as CRLF
     if not name or kind not in ("car", "plane") or not 10 <= length <= 30:
         raise HTTPException(422, "need a name, kind car/plane and length 10-30s")
     if not 1 <= len(media) <= 10:
         raise HTTPException(422, "upload 1-10 clips or photos")
-    song_ext = pathlib.Path(song.filename or "").suffix.lower()
-    if song_ext not in SONGS:
-        raise HTTPException(422, "song must be mp3, wav or m4a")
+    track = None
+    if song_ncs:  # a track from the NCS library: the server fetches it itself
+        try:
+            track = ncs.find(song_ncs)
+        except OSError:
+            raise HTTPException(502, "couldn't reach ncs.io, try again or upload the song")
+        if not track:
+            raise HTTPException(422, "unknown NCS track")
+        song_ext = ".mp3"
+    elif song:
+        song_ext = pathlib.Path(song.filename or "").suffix.lower()
+        if song_ext not in SONGS:
+            raise HTTPException(422, "song must be mp3, wav or m4a")
+    else:
+        raise HTTPException(422, "pick an NCS track or upload a song")
     exts = [pathlib.Path(m.filename or "").suffix.lower() for m in media]
     if any(e not in MEDIA for e in exts):
         raise HTTPException(422, "clips/photos must be jpg, png, webp, mp4, mov, mkv or webm")
@@ -117,19 +133,50 @@ def create_job(name: str = Form(..., max_length=40), kind: str = Form("car"), le
     try:
         for i, (m, e) in enumerate(zip(media, exts)):
             save(m, d / "media" / f"{i}{e}")
-        save(song, d / f"song{song_ext}", 50 << 20)
+        if track:
+            ncs.download(track, d / "song.mp3", 50 << 20)
+            credit = credit.strip() or ncs.credit(track["id"])
+        else:
+            save(song, d / f"song{song_ext}", 50 << 20)
+    except (OSError, ValueError) as e:
+        shutil.rmtree(d, ignore_errors=True)
+        raise HTTPException(502, f"couldn't get the NCS song: {e}")
     except BaseException:
         shutil.rmtree(d, ignore_errors=True)
         raise
     (d / "meta.json").write_text(json.dumps(
         {"name": name, "kind": kind, "length": length, "focus": [fx, fy],
-         "song": pathlib.Path(song.filename).stem, "credit": credit.strip()}, ensure_ascii=False), encoding="utf-8")
+         "song": f"{track['artist']} - {track['title']}" if track else pathlib.Path(song.filename).stem,
+         "credit": credit.strip()}, ensure_ascii=False), encoding="utf-8")
     state(d, status="queued")
     try:
         dispatch(job_id)
     except Exception as e:  # surfaced to the page instead of a job stuck on "queued"
         state(d, status="error", error=f"could not start GitHub render: {e}")
     return state(d)
+
+
+@app.get("/music")
+def music(genre: str = "phonk"):
+    """NCS tracks for the song picker (free to use with the credit in the description)."""
+    if genre not in ncs.GENRES:
+        raise HTTPException(422, f"genre must be one of {', '.join(ncs.GENRES)}")
+    try:
+        return ncs.tracks(genre)
+    except OSError as e:
+        raise HTTPException(502, f"couldn't reach ncs.io: {e}")
+
+
+@app.get("/music/{slug}/credit")
+def music_credit(slug: str):
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", slug):
+        raise HTTPException(422, "bad track id")
+    try:
+        if not ncs.find(slug):  # only catalogue tracks, so this can't be used to hit arbitrary ncs.io pages
+            raise HTTPException(404, "unknown NCS track")
+        return {"credit": ncs.credit(slug)}
+    except OSError as e:
+        raise HTTPException(502, f"couldn't reach ncs.io: {e}")
 
 
 @app.get("/jobs/{job_id}")

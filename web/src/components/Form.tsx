@@ -246,8 +246,14 @@ export function FocusPicker({ file, focus, onChange }: {
 
 const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
-export function SongDrop({ song, onChange }: { song: File | null; onChange: (f: File | null) => void }) {
-  const url = useObjectUrl(song);
+/** Compact player for the chosen song: play/pause, seek bar, time, remove. */
+export function SongPlayer({ src, title, subtitle, badge, onRemove }: {
+  src?: string;
+  title: string;
+  subtitle?: string;
+  badge?: string;
+  onRemove: () => void;
+}) {
   const audio = React.useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = React.useState(false);
   const [time, setTime] = React.useState(0);
@@ -255,25 +261,7 @@ export function SongDrop({ song, onChange }: { song: File | null; onChange: (f: 
   React.useEffect(() => {
     setPlaying(false);
     setTime(0);
-  }, [url]);
-
-  const pickFiles = (files: File[]) => {
-    const f = files.find((x) => /\.(mp3|wav|m4a)$/i.test(x.name));
-    if (f) onChange(f);
-  };
-
-  if (!song)
-    return (
-      <DropZone accept=".mp3,.wav,.m4a,audio/*" onFiles={pickFiles}>
-        <div className="grid size-11 place-items-center rounded-2xl bg-white/5 ring-1 ring-white/10 transition group-hover:scale-105">
-          <Music2 className="size-5 text-accent" />
-        </div>
-        <p className="text-sm font-bold">
-          Drop a phonk track <span className="font-medium text-muted-foreground">mp3 / wav / m4a</span>
-        </p>
-        <p className="text-xs text-muted-foreground">Use YouTube Audio Library or NCS. Pixabay tracks get claimed.</p>
-      </DropZone>
-    );
+  }, [src]);
 
   return (
     <motion.div
@@ -290,7 +278,11 @@ export function SongDrop({ song, onChange }: { song: File | null; onChange: (f: 
         {playing ? <Pause className="size-5 fill-current" /> : <Play className="size-5 translate-x-px fill-current" />}
       </button>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-bold">{song.name.replace(/\.[^.]+$/, "")}</p>
+        <p className="flex items-center gap-2 truncate text-sm font-bold">
+          <span className="truncate">{title}</span>
+          {badge && <span className="shrink-0 rounded-md bg-ok/15 px-1.5 py-px text-[10px] font-black text-ok">{badge}</span>}
+        </p>
+        {subtitle && <p className="truncate text-xs text-muted-foreground">{subtitle}</p>}
         <div
           className="mt-1.5 h-1.5 cursor-pointer overflow-hidden rounded-full bg-white/10"
           onPointerDown={(e) => {
@@ -301,12 +293,12 @@ export function SongDrop({ song, onChange }: { song: File | null; onChange: (f: 
           <div className="h-full rounded-full bg-accent" style={{ width: `${dur ? (time / dur) * 100 : 0}%` }} />
         </div>
       </div>
-      <span className="shrink-0 text-xs font-semibold tabular-nums text-muted-foreground">
+      <span className="shrink-0 text-xs font-semibold tabular-nums text-muted-foreground max-sm:hidden">
         {fmt(time)} / {fmt(dur)}
       </span>
       <button
         type="button"
-        onClick={() => onChange(null)}
+        onClick={onRemove}
         aria-label="Remove song"
         className="grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground transition hover:bg-white/10 hover:text-foreground"
       >
@@ -314,13 +306,34 @@ export function SongDrop({ song, onChange }: { song: File | null; onChange: (f: 
       </button>
       <audio
         ref={audio}
-        src={url}
+        src={src}
+        preload="metadata"
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
         onTimeUpdate={(e) => setTime(e.currentTarget.currentTime)}
         onLoadedMetadata={(e) => setDur(e.currentTarget.duration)}
       />
     </motion.div>
+  );
+}
+
+export function SongDrop({ song, onChange }: { song: File | null; onChange: (f: File | null) => void }) {
+  const url = useObjectUrl(song);
+  const pickFiles = (files: File[]) => {
+    const f = files.find((x) => /\.(mp3|wav|m4a)$/i.test(x.name));
+    if (f) onChange(f);
+  };
+  if (song) return <SongPlayer src={url} title={song.name.replace(/\.[^.]+$/, "")} onRemove={() => onChange(null)} />;
+  return (
+    <DropZone accept=".mp3,.wav,.m4a,audio/*" onFiles={pickFiles}>
+      <div className="grid size-11 place-items-center rounded-2xl bg-white/5 ring-1 ring-white/10 transition group-hover:scale-105">
+        <Music2 className="size-5 text-accent" />
+      </div>
+      <p className="text-sm font-bold">
+        Drop your own track <span className="font-medium text-muted-foreground">mp3 / wav / m4a</span>
+      </p>
+      <p className="text-xs text-muted-foreground">e.g. from YouTube Audio Library. Avoid Pixabay, those get claimed.</p>
+    </DropZone>
   );
 }
 
