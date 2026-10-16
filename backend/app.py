@@ -81,7 +81,7 @@ def dispatch(job_id):
     urllib.request.urlopen(req, timeout=15).close()
 
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])  # Uptime Robot checks with HEAD
 def health():
     return {"ok": True}
 
