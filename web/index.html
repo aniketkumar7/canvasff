@@ -312,7 +312,8 @@ function finish(id, job) {
 
 function reset() { show("idle"); validate(); }
 
-const pending = localStorage.getItem("canvasff-job");
+// resume the job in progress, or open one by link: ?job=<id>
+const pending = new URLSearchParams(location.search).get("job") || localStorage.getItem("canvasff-job");
 if (pending) poll(pending);
 </script>
 </body>
