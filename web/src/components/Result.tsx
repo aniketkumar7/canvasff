@@ -180,7 +180,7 @@ export function RecentList({ items, activeId, refreshKey, onOpen }: {
 
   if (!items.length) return null;
   return (
-    <section className="mt-6 rounded-3xl border border-border bg-card/80 p-4 backdrop-blur-sm">
+    <section id="recent" className="mt-6 scroll-mt-24 rounded-3xl border border-border bg-card/80 p-4 backdrop-blur-sm">
       <h3 className="mb-2 flex items-center gap-2 px-1 text-[11px] font-extrabold tracking-[0.12em] text-muted-foreground uppercase">
         <History className="size-3.5" /> Recent Shorts
       </h3>

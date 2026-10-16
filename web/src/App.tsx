@@ -7,6 +7,7 @@ import { GenerationFrame, type FrameState } from "./components/GenerationFrame";
 import { FocusPicker, MediaDrop, Section, Segmented, SongDrop, isVideo, useObjectUrl } from "./components/Form";
 import { RecentList, StatusLine, UploadFields } from "./components/Result";
 import { MusicLibrary } from "./components/MusicLibrary";
+import { Hero, TopBar } from "./components/Header";
 import { createJob, getCredit, getJob, JobGone, videoUrl, type Job, type NcsTrack } from "./lib/api";
 import { CURRENT, RECENT, remember, store, type Recent } from "./lib/store";
 
@@ -123,7 +124,7 @@ export default function App() {
     setError(null);
     setUpload(0);
     setJob({ id: "", name: name.trim(), status: "uploading", created: Date.now() / 1000, updated: 0 });
-    if (window.matchMedia("(max-width: 1023px)").matches) frameRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (window.matchMedia("(max-width: 767px)").matches) frameRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     try {
       const j = await createJob(fd, setUpload);
       if (j.status === "error") return fail(j.error || "Couldn't start the render");
@@ -144,35 +145,20 @@ export default function App() {
   };
 
   return (
+    <>
+    <TopBar
+      steps={[
+        { label: "Footage", done: media.length > 0 },
+        { label: "Sound", done: hasSong },
+        { label: "Details", done: !!name.trim() },
+      ]}
+      recentCount={recent.length}
+      onRecent={() => document.getElementById("recent")?.scrollIntoView({ behavior: "smooth", block: "center" })}
+    />
     <main className="mx-auto max-w-6xl px-4 pt-6 pb-16 sm:px-6 lg:pt-10">
-      <header className="mb-8 flex items-center gap-3">
-        <div className="grid size-9 place-items-center rounded-xl bg-accent text-accent-foreground shadow-[0_0_30px_rgb(255_214_10/0.35)]">
-          <svg viewBox="0 0 24 24" className="size-4 translate-x-px fill-current"><path d="M7 4.5v15l12-7.5z" /></svg>
-        </div>
-        <div className="leading-tight">
-          <p className="text-[15px] font-black tracking-tight">
-            Canvas<span className="text-accent">FF</span> Studio
-          </p>
-          <p className="text-xs font-medium text-muted-foreground">Guess-the-car Shorts, answer on the drop</p>
-        </div>
-        <a
-          href="https://www.youtube.com/@CanvasFFyt/shorts"
-          target="_blank"
-          rel="noreferrer"
-          className="ml-auto flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-bold text-muted-foreground transition hover:border-white/20 hover:text-foreground"
-        >
-          <svg viewBox="0 0 24 24" className="size-4 fill-current" aria-hidden><path d="M23 7.2a3 3 0 0 0-2.1-2.1C19 4.6 12 4.6 12 4.6s-7 0-8.9.5A3 3 0 0 0 1 7.2 31 31 0 0 0 .5 12a31 31 0 0 0 .5 4.8 3 3 0 0 0 2.1 2.1c1.9.5 8.9.5 8.9.5s7 0 8.9-.5a3 3 0 0 0 2.1-2.1 31 31 0 0 0 .5-4.8 31 31 0 0 0-.5-4.8zM9.8 15.1V8.9l5.4 3.1z" /></svg> @CanvasFFyt
-        </a>
-      </header>
-
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-10">
-        <div className="space-y-4">
-          <h1 className="mb-6 text-[clamp(28px,4.5vw,44px)] leading-[1.05] font-black tracking-[-0.03em]">
-            Drop the footage.
-            <br />
-            <span className="text-muted-foreground">We cut it to the </span>
-            <span className="text-accent">beat.</span>
-          </h1>
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-[minmax(0,1fr)_300px] md:gap-8 lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-10">
+        <div className="min-w-0 space-y-4">
+          <Hero />
 
           <Section step={1} title="Footage" hint={media.length ? `${media.length}/10` : undefined}>
             <MediaDrop files={media} onChange={setMedia} />
@@ -212,7 +198,7 @@ export default function App() {
           </Section>
 
           <Section step={first ? 4 : 3} title="Details">
-            <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_220px]">
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
               <label className="block">
                 <span className="mb-1.5 block text-[11px] font-extrabold tracking-[0.12em] text-muted-foreground uppercase">Answer</span>
                 <input
@@ -257,7 +243,7 @@ export default function App() {
             />
           </Section>
 
-          <div className="pt-2">
+          <div className="pt-2 max-md:sticky max-md:bottom-0 max-md:z-20 max-md:-mx-4 max-md:bg-gradient-to-t max-md:from-background max-md:via-background/95 max-md:to-transparent max-md:px-4 max-md:pt-6 max-md:pb-[calc(12px+env(safe-area-inset-bottom))]">
             <motion.button
               type="button"
               onClick={submit}
@@ -266,7 +252,7 @@ export default function App() {
               whileTap={missing.length || busy ? undefined : { scale: 0.98 }}
               className={cn(
                 "group relative flex w-full items-center justify-center gap-2.5 overflow-hidden rounded-2xl bg-accent px-6 py-4 text-[17px] font-black text-accent-foreground",
-                "shadow-[0_12px_40px_-12px_rgb(255_214_10/0.6)] transition-opacity disabled:cursor-not-allowed disabled:opacity-35 disabled:shadow-none",
+                "shadow-[0_12px_40px_-12px_rgb(255_214_10/0.6)] transition-colors disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none disabled:ring-1 disabled:ring-border",
               )}
             >
               <span
@@ -282,8 +268,8 @@ export default function App() {
           </div>
         </div>
 
-        <aside ref={frameRef} className="scroll-mt-4 lg:sticky lg:top-8 lg:self-start">
-          <div className="mx-auto max-w-[380px]">
+        <aside ref={frameRef} className="min-w-0 scroll-mt-20 md:sticky md:top-20 md:self-start">
+          <div className="mx-auto w-full max-w-[420px] md:max-w-none">
             <GenerationFrame
               state={frameState}
               tintSrc={firstUrl}
@@ -291,6 +277,7 @@ export default function App() {
               focus={focus}
               videoSrc={job?.status === "done" ? videoUrl(job.id) : undefined}
               downloadName={`${job?.name ?? "short"}.mp4`}
+              className={frameState === "idle" ? "max-md:aspect-auto max-md:h-40" : undefined}
             />
 
             {error ? (
@@ -340,5 +327,6 @@ export default function App() {
         </aside>
       </div>
     </main>
+    </>
   );
 }
