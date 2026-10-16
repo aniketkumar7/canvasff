@@ -111,12 +111,13 @@ def parse_name(stem):
 
 def run_job(job):
     """Cloud worker mode: job/meta.json {name, kind, length, focus}, job/media/*, job/song.* -> job/out.mp4 + out.json"""
+    job = job.resolve()  # remotion renders with cwd=editor/, so a relative out path lands in the wrong place
     m = json.loads((job / "meta.json").read_text(encoding="utf-8"))
     song = next(f for f in job.glob("song.*") if f.suffix.lower() in SONGS)
     make(list((job / "media").iterdir()), m["name"], m.get("focus") or [0.5, 0.5], m["kind"],
          float(m.get("length", 17)), song, job / "out.mp4", m.get("song"), m.get("credit", ""))
     if not (job / "out.mp4").exists():
-        raise SystemExit("no video made: none of the uploads is a usable clip or photo")
+        raise SystemExit(f"no video at {job / 'out.mp4'} (no usable clip/photo, or render wrote elsewhere)")
 
 
 def main():
