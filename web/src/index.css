@@ -1,0 +1,59 @@
+@import "tailwindcss";
+
+/* Dark studio theme. Raw vars are read by the devignerui components
+   (var(--foreground) etc.); @theme maps them to Tailwind utilities. */
+:root {
+  --background: #09090b;
+  --foreground: #f4f4f5;
+  --card: #111114;
+  --card-foreground: #f4f4f5;
+  --muted: #18181c;
+  --muted-foreground: #8e8e9a;
+  --border: #26262d;
+  --ring: #ffd60a;
+  --accent: #ffd60a;
+  --accent-foreground: #0b0b0c;
+  --danger: #ff6363;
+  --ok: #3ddc84;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-ring: var(--ring);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-danger: var(--danger);
+  --color-ok: var(--ok);
+  --font-sans: "Montserrat", ui-sans-serif, system-ui, sans-serif;
+}
+
+html {
+  background: var(--background);
+}
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background:
+    radial-gradient(1200px 600px at 85% -10%, color-mix(in oklab, var(--accent) 7%, transparent), transparent 60%),
+    radial-gradient(900px 500px at -10% 110%, color-mix(in oklab, #6d5cff 6%, transparent), transparent 60%),
+    var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--accent) 35%, transparent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}

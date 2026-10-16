@@ -6,3 +6,5 @@ music/
 output/
 editor/public/job/
 *.log
+
+web/dist/

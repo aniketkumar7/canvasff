@@ -29,9 +29,10 @@ Optional zoom start in the name: `BMW M4@0.25,0.5`. Songs in `music/` (YouTube A
 - Env vars: `GH_REPO` = `owner/repo`, `GH_TOKEN`, `WORKER_TOKEN`, `FRONTEND_ORIGIN` = your Vercel URL.
 - Uptime Robot: monitor `https://<render-url>/health` every 5 min.
 
-**3. Vercel** (frontend)
-- Import the repo, **Root Directory = `web`**, framework "Other", no build command.
-- Edit `web/config.js` → `window.CANVASFF_API = "https://<render-url>"`, commit.
+**3. Vercel** (frontend, React + Vite in `web/`)
+- Import the repo, **Root Directory = `web`**. Build settings come from `web/vercel.json` (`npm run build` → `dist`).
+- The API URL defaults to `https://canvasff-api.onrender.com`; to change it set `VITE_API_URL` in Vercel → Environment Variables.
+- Local: `cd web && npm i && npm run dev` (set `VITE_API_URL=http://localhost:8000` for a local API).
 
 ## Limits
 - Download each video when it's done: Render's free disk is wiped on restart/deploy, and jobs are deleted after 6 h.
