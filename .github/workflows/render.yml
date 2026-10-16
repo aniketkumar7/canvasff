@@ -25,7 +25,8 @@ jobs:
     steps:
       - name: Mark rendering
         env: { TOKEN: "${{ secrets.WORKER_TOKEN }}" }
-        run: $CURL -X POST -H "X-Worker-Token: $TOKEN" -F status=rendering "$API/status"
+        run: |
+          $CURL -X POST -H "X-Worker-Token: $TOKEN" -F status=rendering "$API/status"
 
       - uses: actions/checkout@v4
         with:
@@ -61,7 +62,8 @@ jobs:
 
       - name: Upload result
         env: { TOKEN: "${{ secrets.WORKER_TOKEN }}" }
-        run: $CURL -X POST -H "X-Worker-Token: $TOKEN" -F video=@job/out.mp4 -F "meta=<job/out.json" "$API/result"
+        run: |
+          $CURL -X POST -H "X-Worker-Token: $TOKEN" -F video=@job/out.mp4 -F "meta=<job/out.json" "$API/result"
 
       - name: Report failure
         if: failure()
