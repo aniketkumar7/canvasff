@@ -58,7 +58,9 @@ jobs:
           unzip -q input.zip -d job
 
       - name: Render
-        run: python make_short.py --job job 2>&1 | tee render.log
+        run: |
+          # Remotion defaults to half the CPUs (1 of 2 here); use all of them
+          RENDER_FLAGS="--concurrency=$(nproc)" python make_short.py --job job 2>&1 | tee render.log
 
       - name: Upload result
         env: { TOKEN: "${{ secrets.WORKER_TOKEN }}" }

@@ -13,7 +13,7 @@ Run:  python make_short.py            (every item in input/ not yet in output/)
 
 Optional zoom focus in the name:  "BMW M4@0.25,0.5"  (x,y of the detail to start on, 0-1).
 """
-import argparse, json, pathlib, random, shutil, subprocess
+import argparse, json, os, pathlib, random, shutil, subprocess
 
 from analyze import analyze
 
@@ -92,7 +92,8 @@ def make(files, name, focus, kind, length, song, out, song_title=None, credit=""
              "music": {"src": f"job/song{song.suffix.lower()}", "start": plan["start"]}}
     (JOB / "props.json").write_text(json.dumps(props, ensure_ascii=False), encoding="utf-8")
 
-    r = subprocess.run(f'npx remotion render src/index.ts Quiz "{out}" --props=public/job/props.json --log=error',
+    r = subprocess.run(f'npx remotion render src/index.ts Quiz "{out}" --props=public/job/props.json --log=error '
+                       + os.environ.get("RENDER_FLAGS", ""),  # worker: --concurrency=$(nproc)
                        cwd=EDITOR, shell=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode:
         raise SystemExit(f"render failed for {name}:\n{(r.stderr or r.stdout)[-2000:]}")
