@@ -62,6 +62,17 @@
   .field button { border: 1px solid var(--line); background: none; color: var(--text); border-radius: 8px; padding: 3px 10px; font: 700 12px Montserrat; cursor: pointer; }
   .field textarea { width: 100%; margin-top: 6px; padding: 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font: 500 13px/1.45 Montserrat; resize: vertical; }
   .muted { color: var(--muted); }
+  .recent { list-style: none; margin: 0; padding: 0; }
+  .recent li { display: flex; align-items: center; gap: 10px; padding: 10px 8px; border-radius: 10px; cursor: pointer; }
+  .recent li:hover { background: var(--bg); }
+  .recent li.gone { cursor: default; opacity: .45; }
+  .recent li.gone:hover { background: none; }
+  .recent .n { flex: 1; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .recent .a { color: var(--muted); font-size: 12px; }
+  .pill { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 99px; background: var(--line); color: var(--muted); }
+  .pill.done { background: #3ddc8422; color: var(--ok); }
+  .pill.error { background: #ff5d5d22; color: var(--danger); }
+  .pill.queued, .pill.rendering { background: #ffd60a22; color: var(--accent); }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -138,6 +149,12 @@
         <p class="hint">Download it now, because the server forgets videos when it restarts.</p>
         <div id="fields"></div>
         <button type="button" class="dl" style="width:100%;background:none" onclick="reset()">Make another</button>
+      </div>
+
+      <div class="card" id="recentCard" hidden>
+        <label class="t">Recent Shorts</label>
+        <ul class="recent" id="recent"></ul>
+        <p class="hint">Videos are kept for 6 hours. Download the ones you want.</p>
       </div>
     </aside>
   </div>
@@ -251,6 +268,8 @@ $("form").onsubmit = (e) => {
     try { job = JSON.parse(xhr.responseText); } catch { job = null; }
     if (xhr.status >= 300 || !job) return fail(job?.detail ? JSON.stringify(job.detail) : `Upload failed (${xhr.status})`);
     localStorage.setItem("canvasff-job", job.id);
+    store.set("canvasff-recent", [{ id: job.id, name: job.name, created: job.created }, ...store.get("canvasff-recent")].slice(0, 10));
+    renderRecent();
     poll(job.id);
   };
   xhr.onerror = () => fail(`Can't reach the API at ${API}. If it's on Render's free plan it may be waking up, so try again in a minute.`);
@@ -288,10 +307,14 @@ function fail(msg, log) {
   $("errLog").hidden = !log;
   $("errLog").textContent = log || "";
   validate();
+  renderRecent();
 }
 
 function finish(id, job) {
   localStorage.removeItem("canvasff-job");
+  const recent = store.get("canvasff-recent");
+  if (!recent.some((r) => r.id === id)) store.set("canvasff-recent", [{ id, name: job.name, created: job.created }, ...recent].slice(0, 10));
+  renderRecent();
   show("done");
   const url = `${API}/jobs/${id}/video.mp4`;
   $("video").src = url;
@@ -310,11 +333,42 @@ function finish(id, job) {
   validate();
 }
 
-function reset() { show("idle"); validate(); }
+function reset() { show("idle"); validate(); renderRecent(); }
+
+// ---- recent Shorts (this browser only) ----
+const store = {
+  get: (k) => { try { return JSON.parse(localStorage.getItem(k)) || []; } catch { return []; } },
+  set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+
+function ago(t) {
+  const m = Math.round((Date.now() / 1000 - t) / 60);
+  return m < 1 ? "just now" : m < 60 ? `${m}m ago` : `${Math.floor(m / 60)}h ${m % 60}m ago`;
+}
+
+async function renderRecent() {
+  const items = store.get("canvasff-recent");
+  $("recentCard").hidden = !items.length;
+  const rows = await Promise.all(items.map(async (it) => {
+    let status = "expired";
+    try {
+      const r = await fetch(`${API}/jobs/${it.id}`);
+      if (r.ok) status = (await r.json()).status;
+    } catch { status = "offline"; }
+    const li = document.createElement("li");
+    li.className = status === "expired" ? "gone" : "";
+    li.innerHTML = `<span class="n"></span><span class="a">${ago(it.created)}</span><span class="pill ${status}">${status}</span>`;
+    li.querySelector(".n").textContent = it.name;
+    if (status !== "expired") li.onclick = () => poll(it.id);
+    return li;
+  }));
+  $("recent").replaceChildren(...rows);
+}
 
 // resume the job in progress, or open one by link: ?job=<id>
 const pending = new URLSearchParams(location.search).get("job") || localStorage.getItem("canvasff-job");
 if (pending) poll(pending);
+renderRecent();
 </script>
 </body>
 </html>

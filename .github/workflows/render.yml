@@ -41,15 +41,35 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: editor/package-lock.json
+
+      # cached between runs: static ffmpeg + emoji font (no apt), editor node_modules (incl. Remotion's Chrome)
+      - id: tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/tools
+            ~/.local/share/fonts
+          key: tools-ffmpeg7-noto-v1
+
+      - id: nm
+        uses: actions/cache@v4
+        with:
+          path: editor/node_modules
+          key: nm-${{ hashFiles('editor/package-lock.json') }}
 
       - name: Install deps
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg fonts-noto-color-emoji
+          if [ "${{ steps.tools.outputs.cache-hit }}" != "true" ]; then
+            mkdir -p ~/tools ~/.local/share/fonts
+            curl -fsSL https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz \
+              | tar xJ --strip-components=1 -C ~/tools --wildcards '*/ffmpeg' '*/ffprobe'
+            curl -fsSL -o ~/.local/share/fonts/NotoColorEmoji.ttf \
+              https://github.com/googlefonts/noto-emoji/raw/main/2D/fonts/NotoColorEmoji.ttf
+          fi
+          echo ~/tools >> "$GITHUB_PATH"
+          fc-cache -f ~/.local/share/fonts
           pip install -q -r worker-requirements.txt
-          npm ci --prefix editor --no-audit --no-fund
+          [ "${{ steps.nm.outputs.cache-hit }}" = "true" ] || npm ci --prefix editor --no-audit --no-fund
 
       - name: Download job
         env: { TOKEN: "${{ secrets.WORKER_TOKEN }}" }

@@ -21,6 +21,10 @@ const FG_W = 1.3; // landscape clips: 130% width (crop sides) so the subject fil
 
 export type Clip = {
   src: string;
+  /** pre-blurred low-res background (make_short.py); without it the background is blurred live, which is slow */
+  bg?: string;
+  /** contrast/saturation already baked in by ffmpeg, so skip the per-frame CSS filter */
+  graded?: boolean;
   kind: "video" | "image";
   width: number;
   height: number;
@@ -72,7 +76,7 @@ function buildSegments({ clips, plan }: QuizProps): Segment[] {
 
 // ---------- footage ----------
 
-const Media = ({ seg, fit }: { seg: Segment; fit: "cover" | "contain" }) => {
+const Media = ({ seg, fit, src = seg.clip.src }: { seg: Segment; fit: "cover" | "contain"; src?: string }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const style: CSSProperties = { width: "100%", height: "100%", objectFit: fit };
@@ -80,11 +84,11 @@ const Media = ({ seg, fit }: { seg: Segment; fit: "cover" | "contain" }) => {
     // slow drift so stills never sit dead
     const dir = random(`dir${seg.i}`) > 0.5 ? 1 : -1;
     const drift = interpolate(frame, [0, (seg.to - seg.from) * fps], [0, 40 * dir]);
-    return <Img src={staticFile(seg.clip.src)} style={{ ...style, transform: `translateX(${drift}px) scale(1.06)` }} />;
+    return <Img src={staticFile(src)} style={{ ...style, transform: `translateX(${drift}px) scale(1.06)` }} />;
   }
   return (
     <OffthreadVideo
-      src={staticFile(seg.clip.src)}
+      src={staticFile(src)}
       muted
       trimBefore={Math.round(seg.offset * fps)}
       playbackRate={seg.rate}
@@ -106,8 +110,8 @@ const Footage = ({ segments }: { segments: Segment[] }) => {
             <AbsoluteFill style={{ transform: seg.mirror ? "scaleX(-1)" : undefined }}>
               {landscape ? (
                 <>
-                  <AbsoluteFill style={{ filter: "blur(40px) brightness(0.8)", transform: "scale(1.2)" }}>
-                    <Media seg={seg} fit="cover" />
+                  <AbsoluteFill style={{ filter: seg.clip.bg ? undefined : "blur(40px) brightness(0.8)", transform: "scale(1.2)" }}>
+                    <Media seg={seg} fit="cover" src={seg.clip.bg} />
                   </AbsoluteFill>
                   <AbsoluteFill style={{ justifyContent: "center", alignItems: "center" }}>
                     <div style={{ width: `${FG_W * 100}%`, flexShrink: 0, aspectRatio: `${seg.clip.width} / ${seg.clip.height}` }}>
@@ -252,7 +256,7 @@ export const Quiz = (props: QuizProps) => {
         style={{
           transform: `translate(${sx}px, ${sy}px) rotate(${rot}deg) scale(${zoom})`,
           transformOrigin: `${originX}px ${originY}px`,
-          filter: "contrast(1.12) saturate(1.25)",
+          filter: props.clips.every((c) => c.graded) ? undefined : "contrast(1.12) saturate(1.25)",
         }}
       >
         <SplitFootage segments={segments} split={split} />

@@ -42,6 +42,19 @@ def probe(path):
     return int(v["width"]), int(v["height"]), float(out["format"].get("duration", 0))
 
 
+GRADE = "eq=contrast=1.12:saturation=1.25"
+
+
+def prep(src, fg, bg):
+    """Do the expensive per-frame work once with ffmpeg instead of in the browser on every frame:
+    colour grade baked in, foreground capped at 2160px wide, background pre-blurred at 1/4 size."""
+    still = ["-frames:v", "1", "-q:v", "2"] if fg.suffix == ".jpg" else ["-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p"]
+    for out, vf in ((fg, f"scale='min(iw,2160)':-2,{GRADE}"),
+                    (bg, f"scale=270:480:force_original_aspect_ratio=increase,crop=270:480,{GRADE},"
+                         "colorchannelmixer=rr=.8:gg=.8:bb=.8,gblur=sigma=10")):
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(src), "-vf", vf, *still, str(out)], check=True)
+
+
 def song_plan(song, length):
     cache = song.with_suffix(f".plan{int(length)}.json")
     if cache.exists():
@@ -77,10 +90,11 @@ def make(files, name, focus, kind, length, song, out, song_title=None, credit=""
     JOB.mkdir(parents=True)
     clips = []
     for i, f in enumerate(files):
-        shutil.copy(f, JOB / f"clip{i}{f.suffix.lower()}")
         w, h, d = probe(f)
-        clips.append({"src": f"job/clip{i}{f.suffix.lower()}", "kind": "image" if f.suffix.lower() in IMG else "video",
-                      "width": w, "height": h, "duration": d, "focus": focus})
+        ext = ".jpg" if f.suffix.lower() in IMG else ".mp4"
+        prep(f, JOB / f"clip{i}{ext}", JOB / f"clip{i}.bg{ext}")
+        clips.append({"src": f"job/clip{i}{ext}", "bg": f"job/clip{i}.bg{ext}", "graded": True,
+                      "kind": "image" if ext == ".jpg" else "video", "width": w, "height": h, "duration": d, "focus": focus})
 
     plan = song_plan(song, length)
     if plan["drop"] is None:  # no clear drop: reveal 3s before the end
