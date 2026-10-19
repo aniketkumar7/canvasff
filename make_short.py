@@ -28,11 +28,6 @@ HOOKS = {
     "car": [("GUESS THE", "CAR", "👀"), ("NAME THIS", "CAR", "🤔"), ("ONLY CAR FANS", "GET THIS", "😳"), ("WHICH CAR", "IS THIS?", "🔍")],
     "plane": [("GUESS THE", "PLANE", "✈️"), ("NAME THIS", "PLANE", "🤔"), ("ONLY PILOTS", "GET THIS", "😳"), ("WHICH PLANE", "IS THIS?", "🔍")],
 }
-TITLES = {
-    "car": ["Guess this car before the drop 👀", "Only real car fans get this one 😳", "Name this car in 5 seconds 🔍"],
-    "plane": ["Guess this plane before the drop ✈️", "Only aviation fans get this one 😳", "Name this plane in 5 seconds 🔍"],
-}
-TAGS = {"car": "#cars #guessthecar #carquiz", "plane": "#aviation #planes #guessthemodel"}
 
 
 def probe(path):
@@ -147,19 +142,55 @@ def song_plan(song, length):
     return plan
 
 
-def upload_text(name, kind, song_title, credit=""):
-    """Title/description/tags for YouTube. The answer stays out of title+description (they'd spoil the quiz);
-    it goes only in the hidden tags."""
-    brand = name.split()[0].lower()
-    tags = [f"guess the {kind}", f"{kind} quiz", f"guess the {kind} challenge", f"{kind} trivia", f"name the {kind}",
-            brand, name.lower(), f"{kind} edit", f"phonk {kind} edit", f"{kind} shorts", f"{kind} lovers", f"{kind} game"]
+TITLE_POOL = {  # {k} = car/plane. Never the answer: it would spoil the quiz.
+    "any": ["Only real {k} fans get this one 😳", "Name this {k} in 5 seconds 🔍", "Guess this {k} before the drop 👀",
+            "99% get this {k} wrong 😬", "Can you name this {k}? 🤔", "Be honest, did you get it? 👀",
+            "This {k} fools almost everyone 😳", "{K} experts only 🧠", "Rate your {k} knowledge: guess this 👇",
+            "Hardest {k} quiz yet? 😤", "Bet you can't name this {k} 😏", "Guess it before the reveal 🔥"],
+    "zoom": ["Guess the {k} before it zooms out 🔍", "Name it from one detail 👀"],
+    "glass": ["Name this {k} before the glass breaks 💥", "Guess before it shatters 🧊"],
+    "pixel": ["Can you name this pixelated {k}? 👾", "Guess the {k} before it gets clear 👾"],
+    "spotlight": ["Only a spotlight. Name the {k} 🔦", "Guess the {k} in the dark 🔦"],
+    "tiles": ["Guess the {k} before all tiles flip 🧩", "Name it with half the picture 🧩"],
+    "choices": ["A, B or C? Guess the {k} 🤔", "Pick one: which {k} is it? 👇", "3 options, 1 right answer. Which {k}? 🎯"],
+}
+DESC_OPEN = ["Can you name this {k} before the drop? 👀", "How fast can you name this {k}? ⏱️", "One look. One guess. What {k} is this? 🎯",
+             "Real {k} fans get this in 3 seconds. Do you? 😏", "Pause, guess, then watch the reveal 👀"]
+DESC_ASK = ["Comment your guess BEFORE the reveal 👇", "Drop your answer below, no editing it after 😤",
+            "Got it right? Comment 'easy'. Wrong? Comment 'next' 👇", "Write your guess, then check the reveal 👇"]
+DESC_NEXT = ["What {k} should I do next? Tell me below", "Suggest the next {k} in the comments, I read them all",
+             "Want a harder one? Comment a {k} to stump everyone", "Follow for a new {k} quiz every day"]
+PINS = ["Drop your guess 👇 1 try only!", "First guess counts, no editing 😤", "How many seconds did it take you? ⏱️",
+        "Too easy or too hard? 🤔", "Next {k}? Best suggestion gets picked 👇"]
+TAG_POOL = {
+    "car": ["guess the car", "car quiz", "guess the car challenge", "car trivia", "name the car", "car shorts",
+            "car lovers", "car game", "car edit", "phonk car edit", "car spotting", "car enthusiast",
+            "car challenge", "cars daily", "dream car", "car guess"],  # generic only: no jdm/supercar etc. that may not fit
+    "plane": ["guess the plane", "plane quiz", "aviation quiz", "aircraft quiz", "name the plane", "aviation shorts",
+              "plane spotting", "avgeek", "aviation lovers", "aircraft", "pilot life", "aviation"],
+}
+HASHTAGS = {"car": ["#cars", "#guessthecar", "#carquiz", "#carshorts", "#carlovers", "#carspotting"],
+            "plane": ["#aviation", "#planes", "#guessthemodel", "#avgeek", "#planespotting", "#aviationlovers"]}
+
+
+def upload_text(name, kind, song_title, credit="", style=None):
+    """Title/description/tags/pin for YouTube, different every Short and matched to its style.
+    The answer stays out of title + description (it would spoil the quiz); it goes only in the hidden tags."""
+    style = style or {}
+    fill = lambda s: s.format(k=kind, K=kind.capitalize())
+    titles = TITLE_POOL["any"] + TITLE_POOL.get(style.get("mechanic"), []) * 2  # style-matched titles twice as likely
+    if style.get("choices"):
+        titles = TITLE_POOL["choices"] * 3 + titles
+    words = name.lower().split()
+    tags = [name.lower(), words[0], *(" ".join(words[:2]),) * (len(words) > 2)] + random.sample(TAG_POOL[kind], 9)
+    hashtags = random.sample(HASHTAGS[kind], 3)
+    desc = "\n".join([fill(random.choice(DESC_OPEN)), fill(random.choice(DESC_ASK)), "No spoilers in the comments!", "",
+                      fill(random.choice(DESC_NEXT)), "", credit or f"🎵 Music: {song_title}", "", " ".join(hashtags)])
     return {
-        "title": f"{random.choice(TITLES[kind])} #shorts",
-        "description": f"Can you name this {kind} before the drop? 👀\nComment your guess BEFORE watching the reveal 👇\n"
-                       f"No spoilers in the comments!\n\nWhat {kind} should I do next? Tell me below\n\n"
-                       f"{credit or f'🎵 Music: {song_title}'}\n\n{TAGS[kind]}",
+        "title": f"{fill(random.choice(titles))} #shorts",
+        "description": desc,
         "tags": ", ".join(dict.fromkeys(tags)),
-        "pin": "Drop your guess 👇 1 try only!",
+        "pin": fill(random.choice(PINS)),
     }
 
 
@@ -203,7 +234,7 @@ def make(files, name, focus, kind, length, song, out, song_title=None, credit=""
     if r.returncode:
         raise SystemExit(f"render failed for {name}:\n{(r.stderr or r.stdout)[-2000:]}")
 
-    meta = upload_text(name, kind, song_title or song.stem, credit)
+    meta = upload_text(name, kind, song_title or song.stem, credit, style)
     out.with_suffix(".json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
     out.with_suffix(".txt").write_text(
         f"TITLE:\n{meta['title']}\n\nDESCRIPTION:\n{meta['description']}\n\nTAGS:\n{meta['tags']}\n\n"
