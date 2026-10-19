@@ -88,12 +88,41 @@ def health():
     return {"ok": True}
 
 
+STYLE = {  # allowed style picks from the web app (same names as OPTIONS in make_short.py)
+    "mechanic": {"zoom", "glass", "pixel", "spotlight", "tiles"},
+    "reveal": {"slam", "scramble", "stamp", "split"},
+    "dropFx": {"flash", "zoomThrough", "glitch", "whip", "shatter"},
+    "cut": {"punch", "whip", "spin", "zoom", "flash"},
+    "look": {"clean", "neon", "tealOrange", "film", "night", "mono2color"},
+    "hook": {"pop", "words", "type", "glitch", "marker"},
+    "font": {"montserrat", "anton", "bebas"},
+    "accent": {"#FFD400", "#00E5FF", "#FF2D55", "#B6FF00", "#FF7A00"},
+    "ramp": {"on", "off"},
+    "bars": {"on", "off"},
+    "choices": {"on", "off"},
+}
+
+
+def parse_style(raw: str) -> dict:
+    """Web-app style JSON -> only known keys with allowed values; on/off become booleans. Anything else = 422."""
+    if not raw.strip():
+        return {}
+    try:
+        s = json.loads(raw)
+    except ValueError:
+        raise HTTPException(422, "style must be JSON")
+    if not isinstance(s, dict) or any(k not in STYLE or v not in STYLE[k] for k, v in s.items()):
+        raise HTTPException(422, "unknown style option")
+    return {k: (v == "on") if v in ("on", "off") else v for k, v in s.items()}
+
+
 @app.post("/jobs")
 def create_job(name: str = Form(..., max_length=40), kind: str = Form("car"), length: float = Form(10),
                focus: str = Form(""), credit: str = Form("", max_length=600),
                media: list[UploadFile] = File(...), song: UploadFile | None = File(None),
-               song_ncs: str = Form("", max_length=80)):
+               song_ncs: str = Form("", max_length=80), style: str = Form("", max_length=600)):
     name = name.strip()
+    style_pick = parse_style(style)
     credit = credit.replace("\r\n", "\n")  # browsers send textarea lines as CRLF
     if not name or kind not in ("car", "plane") or not 8 <= length <= 30:
         raise HTTPException(422, "need a name, kind car/plane and length 8-30s")
@@ -147,7 +176,7 @@ def create_job(name: str = Form(..., max_length=40), kind: str = Form("car"), le
     (d / "meta.json").write_text(json.dumps(
         {"name": name, "kind": kind, "length": length, "focus": [fx, fy],
          "song": f"{track['artist']} - {track['title']}" if track else pathlib.Path(song.filename).stem,
-         "credit": credit.strip()}, ensure_ascii=False), encoding="utf-8")
+         "credit": credit.strip(), "style": style_pick}, ensure_ascii=False), encoding="utf-8")
     state(d, status="queued")
     try:
         dispatch(job_id)

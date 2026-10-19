@@ -7,6 +7,7 @@ import { GenerationFrame, type FrameState } from "./components/GenerationFrame";
 import { FocusPicker, MediaDrop, Section, Segmented, SongDrop, isVideo, useObjectUrl } from "./components/Form";
 import { RecentList, StatusLine, UploadFields } from "./components/Result";
 import { MusicLibrary } from "./components/MusicLibrary";
+import { StylePicker, styleForForm, type StyleChoice } from "./components/StylePicker";
 import { Hero, TopBar } from "./components/Header";
 import { createJob, getCredit, getJob, JobGone, videoUrl, type Job, type NcsTrack } from "./lib/api";
 import { CURRENT, RECENT, remember, store, type Recent } from "./lib/store";
@@ -26,6 +27,7 @@ export default function App() {
   const [name, setName] = React.useState("");
   const [kind, setKind] = React.useState<Kind>("car");
   const [length, setLength] = React.useState(10);
+  const [style, setStyle] = React.useState<StyleChoice>({});
 
   const [job, setJob] = React.useState<Job | null>(null);
   const [upload, setUpload] = React.useState(0);
@@ -118,6 +120,7 @@ export default function App() {
     fd.append("length", String(length));
     fd.append("focus", focus.join(","));
     fd.append("credit", credit);
+    fd.append("style", JSON.stringify(styleForForm(style)));
     media.forEach((f) => fd.append("media", f));
     if (source === "ncs") fd.append("song_ncs", ncs!.id);
     else fd.append("song", song!);
@@ -197,7 +200,11 @@ export default function App() {
             </label>
           </Section>
 
-          <Section step={first ? 4 : 3} title="Details">
+          <Section step={first ? 4 : 3} title="Style" hint={Object.keys(styleForForm(style)).length ? "custom" : "random"}>
+            <StylePicker value={style} onChange={setStyle} />
+          </Section>
+
+          <Section step={first ? 5 : 4} title="Details">
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
               <label className="block">
                 <span className="mb-1.5 block text-[11px] font-extrabold tracking-[0.12em] text-muted-foreground uppercase">Answer</span>
