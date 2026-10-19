@@ -48,18 +48,25 @@ GRADE = "eq=contrast=1.12:saturation=1.25"
 def prep(src, fg, bg):
     """Do the expensive per-frame work once with ffmpeg instead of in the browser on every frame:
     colour grade baked in, foreground capped at 2160px wide, background pre-blurred at 1/4 size."""
-    still = ["-frames:v", "1", "-q:v", "2"] if fg.suffix == ".jpg" else ["-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p"]
+    still = ["-frames:v", "1", "-q:v", "2"] if fg.suffix == ".jpg" else ["-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p",
+                                                                   "-bf", "0", "-g", "30"]  # no B-frames: Remotion seeks reliably
     for out, vf in ((fg, f"scale='min(iw,2160)':-2,{GRADE}"),
                     (bg, f"scale=270:480:force_original_aspect_ratio=increase,crop=270:480,{GRADE},"
                          "colorchannelmixer=rr=.8:gg=.8:bb=.8,gblur=sigma=10")):
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(src), "-vf", vf, *still, str(out)], check=True)
 
 
+def build_for(length):
+    """Seconds before the answer. Analytics: viewers leave after ~5s, so reveal early (10s Short -> ~4s)."""
+    return round(min(9.0, max(3.5, length * 0.42)), 1)
+
+
 def song_plan(song, length):
-    cache = song.with_suffix(f".plan{int(length)}.json")
+    build = build_for(length)
+    cache = song.with_suffix(f".plan{length:g}-{build:g}.json")
     if cache.exists():
         return json.loads(cache.read_text())
-    plan = analyze(song, length)
+    plan = analyze(song, length, build)
     cache.write_text(json.dumps(plan))
     return plan
 
@@ -87,7 +94,7 @@ def make(files, name, focus, kind, length, song, out, song_title=None, credit=""
         return print("  skip (no clips/photos):", name)
 
     shutil.rmtree(JOB, ignore_errors=True)
-    JOB.mkdir(parents=True)
+    JOB.mkdir(parents=True, exist_ok=True)  # Windows: folder may survive rmtree if something has it open
     clips = []
     for i, f in enumerate(files):
         w, h, d = probe(f)
@@ -97,8 +104,8 @@ def make(files, name, focus, kind, length, song, out, song_title=None, credit=""
                       "kind": "image" if ext == ".jpg" else "video", "width": w, "height": h, "duration": d, "focus": focus})
 
     plan = song_plan(song, length)
-    if plan["drop"] is None:  # no clear drop: reveal 3s before the end
-        plan["drop"] = length - 3
+    if plan["drop"] is None:  # no clear drop: reveal where the build-up would end
+        plan["drop"] = build_for(length)
     shutil.copy(song, JOB / f"song{song.suffix.lower()}")
     l1, l2, emoji = random.choice(HOOKS[kind])
     props = {"answer": name, "hook": [l1, l2], "emoji": emoji, "clips": clips,
@@ -130,14 +137,14 @@ def run_job(job):
     m = json.loads((job / "meta.json").read_text(encoding="utf-8"))
     song = next(f for f in job.glob("song.*") if f.suffix.lower() in SONGS)
     make(list((job / "media").iterdir()), m["name"], m.get("focus") or [0.5, 0.5], m["kind"],
-         float(m.get("length", 17)), song, job / "out.mp4", m.get("song"), m.get("credit", ""))
+         float(m.get("length", 10)), song, job / "out.mp4", m.get("song"), m.get("credit", ""))
     if not (job / "out.mp4").exists():
         raise SystemExit(f"no video at {job / 'out.mp4'} (no usable clip/photo, or render wrote elsewhere)")
 
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--len", type=float, default=17, help="Short length in seconds (15-20)")
+    p.add_argument("--len", type=float, default=10, help="Short length in seconds (9-12 works best)")
     p.add_argument("--job", type=pathlib.Path, help="render one uploaded job folder (used by the GitHub Actions worker)")
     a = p.parse_args()
     if a.job:

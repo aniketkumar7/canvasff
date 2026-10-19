@@ -89,14 +89,14 @@ def health():
 
 
 @app.post("/jobs")
-def create_job(name: str = Form(..., max_length=40), kind: str = Form("car"), length: float = Form(17),
+def create_job(name: str = Form(..., max_length=40), kind: str = Form("car"), length: float = Form(10),
                focus: str = Form(""), credit: str = Form("", max_length=600),
                media: list[UploadFile] = File(...), song: UploadFile | None = File(None),
                song_ncs: str = Form("", max_length=80)):
     name = name.strip()
     credit = credit.replace("\r\n", "\n")  # browsers send textarea lines as CRLF
-    if not name or kind not in ("car", "plane") or not 10 <= length <= 30:
-        raise HTTPException(422, "need a name, kind car/plane and length 10-30s")
+    if not name or kind not in ("car", "plane") or not 8 <= length <= 30:
+        raise HTTPException(422, "need a name, kind car/plane and length 8-30s")
     if not 1 <= len(media) <= 10:
         raise HTTPException(422, "upload 1-10 clips or photos")
     track = None

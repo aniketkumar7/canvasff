@@ -60,7 +60,7 @@ const decay = (t: number, hits: number[], amp: number, k: number) =>
 
 function buildSegments({ clips, plan }: QuizProps): Segment[] {
   const { drop, length, downbeats, beats } = plan;
-  const slowFrom = drop - 0.9;
+  const slowFrom = drop - Math.min(0.9, drop * 0.18); // short build-ups get a shorter slow-mo
   const guessCuts = downbeats.filter((t) => t > 0.8 && t < slowFrom - 0.6);
   const post = beats.filter((t) => t > drop + 0.2 && t < length - 0.3);
   const postCuts = post.filter((_, i) => i < 8 || i % 2 === 0); // every beat, then every 2nd
@@ -282,10 +282,10 @@ export const Quiz = (props: QuizProps) => {
             />
           </div>
           <div style={{ position: "absolute", top: 270, width: "100%", opacity: hookExit, transform: `scale(${1 + beatPulse * 0.05 + (1 - hookExit) * 0.3})` }}>
-            <Letters text={hook[0]} start={0.1} size={92} color="white" />
+            <Letters text={hook[0]} start={-0.2} stagger={0} size={92} color="white" />
             <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 18, marginTop: 6 }}>
-              <Letters text={hook[1]} start={0.1 + hook[0].length * 0.05} size={140} color={YELLOW} />
-              <PopIn start={0.6} style={{ fontSize: 120 }}>{emoji}</PopIn>
+              <Letters text={hook[1]} start={-0.15} stagger={0} size={140} color={YELLOW} />
+              <PopIn start={0.15} style={{ fontSize: 120 }}>{emoji}</PopIn>
             </div>
           </div>
         </>

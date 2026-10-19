@@ -25,7 +25,7 @@ export default function App() {
   const [credit, setCredit] = React.useState("");
   const [name, setName] = React.useState("");
   const [kind, setKind] = React.useState<Kind>("car");
-  const [length, setLength] = React.useState(17);
+  const [length, setLength] = React.useState(10);
 
   const [job, setJob] = React.useState<Job | null>(null);
   const [upload, setUpload] = React.useState(0);
@@ -228,15 +228,15 @@ export default function App() {
               label="Length"
               value={length}
               onValueChange={setLength}
-              min={15}
-              max={20}
+              min={9}
+              max={12}
               step={1}
               snap="steps"
               format={(v) => `${v}s`}
               marks={[
-                { value: 15, label: "15s" },
-                { value: 17, label: "17s · best" },
-                { value: 20, label: "20s" },
+                { value: 9, label: "9s" },
+                { value: 10, label: "10s · best" },
+                { value: 12, label: "12s" },
               ]}
               color="#ffd60a"
               classNames={{ value: "font-black text-accent", label: "font-extrabold text-[13px] tracking-wide uppercase" }}
