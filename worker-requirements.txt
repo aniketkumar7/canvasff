@@ -1,2 +1,7 @@
 librosa==1.0.*
 numpy==2.5.*
+# photo -> video shots (photo_prep.py / photo_shots.py), CPU only
+rembg==2.*
+onnxruntime==1.26.*
+opencv-python-headless==5.*
+huggingface_hub

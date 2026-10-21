@@ -196,7 +196,8 @@ def upload_text(name, kind, song_title, credit="", style=None):
 
 def make(files, name, focus, kind, length, song, out, song_title=None, credit="", style=None):
     """Render one Short to `out` (.mp4) and write its upload text next to it (.txt + .json)."""
-    files = sorted(f for f in files if f.suffix.lower() in IMG | VID)
+    # .mask/.depth PNGs are photo_prep's caches, not footage
+    files = sorted(f for f in files if f.suffix.lower() in IMG | VID and not f.stem.endswith((".mask", ".depth")))
     if not files:
         return print("  skip (no clips/photos):", name)
     style = pick_style(style)
@@ -204,6 +205,15 @@ def make(files, name, focus, kind, length, song, out, song_title=None, credit=""
 
     shutil.rmtree(JOB, ignore_errors=True)
     JOB.mkdir(parents=True, exist_ok=True)  # Windows: folder may survive rmtree if something has it open
+    # each photo also becomes moving shots (3D camera glide + driving); they join the cut list as video clips
+    photos = [f for f in files if f.suffix.lower() in IMG]
+    if photos:
+        from photo_shots import photo_video  # heavy deps (onnx models) only when there are photos
+        for j, f in enumerate(photos):
+            try:
+                files = files + photo_video(f, JOB, f"shot{j}")
+            except Exception as e:  # the plain photo still works without them; say so in the log
+                print(f"  photo shots skipped for {f.name}: {e}", flush=True)
     clips = []
     for i, f in enumerate(files):
         w, h, d = probe(f)

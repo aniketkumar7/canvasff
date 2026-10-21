@@ -59,7 +59,7 @@ export type QuizProps = {
   choices?: string[];
 };
 
-type Segment = { from: number; to: number; clip: Clip; src: string; offset: number; rate: number; mirror: boolean; i: number };
+type Segment = { from: number; to: number; clip: Clip; src: string; offset: number; rate: number; i: number };
 
 // ---------- timing helpers ----------
 
@@ -83,7 +83,7 @@ function buildSegments({ clips, plan }: QuizProps, style: Style): Segment[] {
     // before the drop, glass shows the blurred copy and pixel the coarse then medium blocks
     const hidden =
       from >= drop ? undefined : style.mechanic === "glass" ? clip.blur : style.mechanic === "pixel" ? (from < drop / 2 ? clip.pix1 : clip.pix2) : undefined;
-    return { from, to, clip, src: hidden ?? clip.src, rate, offset: random(`off${i}`) * room, mirror: from >= drop && i % 3 === 2, i };
+    return { from, to, clip, src: hidden ?? clip.src, rate, offset: random(`off${i}`) * room, i }; // no mirrored cuts: they reverse plates and badges
   });
 }
 
@@ -120,7 +120,7 @@ const Footage = ({ segments }: { segments: Segment[] }) => {
         const landscape = seg.clip.width > seg.clip.height;
         return (
           <Sequence key={seg.i} from={from} durationInFrames={dur} layout="absolute-fill">
-            <AbsoluteFill style={{ transform: seg.mirror ? "scaleX(-1)" : undefined }}>
+            <AbsoluteFill>
               {landscape ? (
                 <>
                   <AbsoluteFill style={{ filter: seg.clip.bg ? undefined : "blur(40px) brightness(0.8)", transform: "scale(1.2)" }}>

@@ -57,6 +57,14 @@ jobs:
           path: editor/node_modules
           key: nm-${{ hashFiles('editor/package-lock.json') }}
 
+      # photo shot models (rembg cut-out + Depth Anything V2 Small), ~270MB: download once, not per render
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.u2net
+            ~/.cache/huggingface
+          key: photo-models-v1
+
       - name: Install deps
         run: |
           if [ "${{ steps.tools.outputs.cache-hit }}" != "true" ]; then
