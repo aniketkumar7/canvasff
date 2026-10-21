@@ -5,7 +5,7 @@ import { Segmented } from "./Form";
 
 /** Every style option the renderer knows (keep in sync with OPTIONS in make_short.py and STYLE in backend/app.py). */
 export const STYLE_OPTIONS = {
-  mechanic: { label: "Hide the car", options: { zoom: "Zoom out", glass: "Frosted glass", pixel: "Pixelated", spotlight: "Spotlight", tiles: "Tiles" } },
+  mechanic: { label: "Hide the car", options: { zoom: "Zoom out", glass: "Frosted glass", pixel: "Pixelated", spotlight: "Spotlight", tiles: "Tiles", silhouette: "Silhouette (photos)" } },
   reveal: { label: "Answer reveal", options: { slam: "Slam", scramble: "Decode", stamp: "Stamp", split: "Split" } },
   dropFx: { label: "Drop hit", options: { flash: "Flash", zoomThrough: "Zoom through", glitch: "Glitch", whip: "Whip pan", shatter: "Shatter (glass)" } },
   cut: { label: "Beat cuts", options: { punch: "Punch", whip: "Whip", spin: "Spin", zoom: "Zoom", flash: "Flash" } },

@@ -55,21 +55,31 @@ OPTIONS = {
     "font": ["montserrat", "anton", "bebas"],
     "accent": ["#FFD400", "#00E5FF", "#FF2D55", "#B6FF00", "#FF7A00"],
 }
-DECOYS = {
-    "car": ["BMW M3", "BMW M5", "Audi RS6", "Audi R8", "Mercedes AMG GT", "Mercedes C63", "Porsche 911", "Porsche Taycan",
-            "Nissan GT-R", "Toyota Supra", "Lamborghini Huracan", "Ferrari 488", "Ford Mustang", "Chevrolet Camaro",
-            "Dodge Challenger", "McLaren 720S", "Honda NSX", "Lexus LFA", "Aston Martin Vantage", "Corvette C8"],
+DECOYS = {  # same-brand models make the best decoys
+    "car": ["BMW M2", "BMW M3", "BMW M4", "BMW M5", "BMW M8", "BMW i8", "BMW Z4",
+            "Audi RS3", "Audi RS6", "Audi R8", "Audi RS e-tron GT",
+            "Mercedes AMG GT", "Mercedes C63", "Mercedes G63", "Mercedes SLS AMG",
+            "Porsche 911 Turbo", "Porsche 911 GT3", "Porsche Cayman GT4", "Porsche Taycan", "Porsche 918 Spyder", "Porsche Carrera GT",
+            "Lamborghini Huracan", "Lamborghini Aventador", "Lamborghini Urus", "Lamborghini Revuelto",
+            "Ferrari 488", "Ferrari F8", "Ferrari SF90", "Ferrari LaFerrari", "Ferrari 812",
+            "McLaren 720S", "McLaren P1", "McLaren Senna", "McLaren Artura",
+            "Nissan GT-R", "Nissan 370Z", "Toyota Supra", "Toyota GR86", "Honda NSX", "Honda Civic Type R", "Lexus LFA",
+            "Ford Mustang", "Ford GT", "Chevrolet Camaro", "Corvette C8", "Dodge Challenger", "Dodge Viper",
+            "Aston Martin Vantage", "Aston Martin DBS", "Bugatti Chiron", "Bugatti Veyron", "Koenigsegg Jesko",
+            "Pagani Huayra", "Rimac Nevera", "Tesla Model S Plaid"],
     "plane": ["Boeing 737", "Boeing 747", "Boeing 777", "Boeing 787", "Airbus A320", "Airbus A350", "Airbus A380",
               "F-16", "F-22 Raptor", "F-35", "Su-57", "Eurofighter Typhoon", "Rafale", "C-130 Hercules"],
 }
 HISTORY = ROOT / "output" / ".style-history.json"
 
 
-def pick_style(override=None):
-    """A fresh mix of effects per reel. Mechanic, reveal and look never repeat the last 3 reels."""
+def pick_style(override=None, has_sil=False):
+    """A fresh mix of effects per reel. Mechanic, reveal and look never repeat the last 3 reels.
+    Silhouette needs a cut-out car, so it's only an option when a photo was turned into shots."""
     hist = json.loads(HISTORY.read_text()) if HISTORY.exists() else []
     style = {}
-    for key, opts in OPTIONS.items():
+    options = {**OPTIONS, "mechanic": OPTIONS["mechanic"] + ["silhouette"] * has_sil}
+    for key, opts in options.items():
         recent = {h.get(key) for h in hist[-3:]} if key in ("mechanic", "reveal", "look") else set()
         style[key] = random.choice([o for o in opts if o not in recent] or opts)
     if style["mechanic"] == "glass" and random.random() < 0.7:
@@ -78,6 +88,8 @@ def pick_style(override=None):
     style["bars"] = random.random() < 0.3
     style["choices"] = random.random() < 0.4  # A/B/C on ~40% of reels
     style.update({k: v for k, v in (override or {}).items() if v not in (None, "", "random")})
+    if style["mechanic"] == "silhouette" and not has_sil:  # picked in the web app but only videos uploaded
+        style["mechanic"] = "zoom"
     try:
         HISTORY.parent.mkdir(exist_ok=True)
         HISTORY.write_text(json.dumps((hist + [style])[-10:]))
@@ -87,10 +99,12 @@ def pick_style(override=None):
 
 
 def choices_for(name, kind):
-    """A/B/C: the answer + 2 decoys (same brand first, so it isn't too easy), shuffled."""
-    pool = [d for d in DECOYS[kind] if d.lower() != name.lower()]
-    brand = name.split()[0].lower()
-    same = [d for d in pool if d.lower().startswith(brand)]
+    """A/B/C: the answer + 2 decoys (same brand first, so it isn't too easy), shuffled.
+    A decoy never contains the answer or sits inside it ("Porsche 911" next to "Porsche 911 GT3" = two right answers)."""
+    n = name.lower()
+    pool = [d for d in DECOYS[kind] if d.lower() not in n and n not in d.lower()]
+    brand = n.split()[0]
+    same = [d for d in pool if d.lower().startswith(brand + " ")]
     picks = random.sample(same, min(1, len(same))) + random.sample([d for d in pool if d not in same], 2)
     opts = [name, *picks[:2]]
     random.shuffle(opts)
@@ -152,6 +166,7 @@ TITLE_POOL = {  # {k} = car/plane. Never the answer: it would spoil the quiz.
     "pixel": ["Can you name this pixelated {k}? 👾", "Guess the {k} before it gets clear 👾"],
     "spotlight": ["Only a spotlight. Name the {k} 🔦", "Guess the {k} in the dark 🔦"],
     "tiles": ["Guess the {k} before all tiles flip 🧩", "Name it with half the picture 🧩"],
+    "silhouette": ["Name this {k} from its shadow 🖤", "Only the outline. Which {k}? 🖤", "Guess the {k} by its shape 👀"],
     "choices": ["A, B or C? Guess the {k} 🤔", "Pick one: which {k} is it? 👇", "3 options, 1 right answer. Which {k}? 🎯"],
 }
 DESC_OPEN = ["Can you name this {k} before the drop? 👀", "How fast can you name this {k}? ⏱️", "One look. One guess. What {k} is this? 🎯",
@@ -160,6 +175,8 @@ DESC_ASK = ["Comment your guess BEFORE the reveal 👇", "Drop your answer below
             "Got it right? Comment 'easy'. Wrong? Comment 'next' 👇", "Write your guess, then check the reveal 👇"]
 DESC_NEXT = ["What {k} should I do next? Tell me below", "Suggest the next {k} in the comments, I read them all",
              "Want a harder one? Comment a {k} to stump everyone", "Follow for a new {k} quiz every day"]
+CTAS = ["GOT IT? COMMENT 👇", "HOW FAST WERE YOU? ⏱️", "1 TRY ONLY 👇", "EASY OR HARD? 🤔", "SCORE IN THE COMMENTS 👇",
+        "NEXT ONE IS HARDER 😈", "TAG A CAR FAN 👇"]
 PINS = ["Drop your guess 👇 1 try only!", "First guess counts, no editing 😤", "How many seconds did it take you? ⏱️",
         "Too easy or too hard? 🤔", "Next {k}? Best suggestion gets picked 👇"]
 TAG_POOL = {
@@ -169,8 +186,8 @@ TAG_POOL = {
     "plane": ["guess the plane", "plane quiz", "aviation quiz", "aircraft quiz", "name the plane", "aviation shorts",
               "plane spotting", "avgeek", "aviation lovers", "aircraft", "pilot life", "aviation"],
 }
-HASHTAGS = {"car": ["#cars", "#guessthecar", "#carquiz", "#carshorts", "#carlovers", "#carspotting"],
-            "plane": ["#aviation", "#planes", "#guessthemodel", "#avgeek", "#planespotting", "#aviationlovers"]}
+HASHTAGS = {"car": ["#cars", "#guessthecar", "#carquiz", "#carshorts", "#carlovers", "#carspotting", "#cartok", "#carsofinstagram"],
+            "plane": ["#aviation", "#planes", "#guessthemodel", "#avgeek", "#planespotting", "#aviationlovers", "#aircraft"]}
 
 
 def upload_text(name, kind, song_title, credit="", style=None):
@@ -181,9 +198,13 @@ def upload_text(name, kind, song_title, credit="", style=None):
     titles = TITLE_POOL["any"] + TITLE_POOL.get(style.get("mechanic"), []) * 2  # style-matched titles twice as likely
     if style.get("choices"):
         titles = TITLE_POOL["choices"] * 3 + titles
+    # hidden tags carry the answer at every level people search: brand, brand+model, full name, model alone
     words = name.lower().split()
-    tags = [name.lower(), words[0], *(" ".join(words[:2]),) * (len(words) > 2)] + random.sample(TAG_POOL[kind], 9)
-    hashtags = random.sample(HASHTAGS[kind], 3)
+    named = [" ".join(words[:i]) for i in range(len(words), 0, -1)]  # "porsche 911 gt3", "porsche 911", "porsche"
+    if len(words) > 1:
+        named += [" ".join(words[1:]), f"{words[0]} {kind}s", f"{words[0]} edit"]
+    tags = named + random.sample(TAG_POOL[kind], 8)
+    hashtags = random.sample(HASHTAGS[kind], 5)  # generic only: a brand hashtag would spoil the answer
     desc = "\n".join([fill(random.choice(DESC_OPEN)), fill(random.choice(DESC_ASK)), "No spoilers in the comments!", "",
                       fill(random.choice(DESC_NEXT)), "", credit or f"🎵 Music: {song_title}", "", " ".join(hashtags)])
     return {
@@ -200,22 +221,25 @@ def make(files, name, focus, kind, length, song, out, song_title=None, credit=""
     files = sorted(f for f in files if f.suffix.lower() in IMG | VID and not f.stem.endswith((".mask", ".depth")))
     if not files:
         return print("  skip (no clips/photos):", name)
-    style = pick_style(style)
-    print("  style:", ", ".join(f"{k}={v}" for k, v in style.items()), flush=True)
-
     shutil.rmtree(JOB, ignore_errors=True)
     JOB.mkdir(parents=True, exist_ok=True)  # Windows: folder may survive rmtree if something has it open
-    # each photo also becomes moving shots (3D camera glide + driving); they join the cut list as video clips
-    photos = [f for f in files if f.suffix.lower() in IMG]
-    if photos:
-        from photo_shots import photo_video  # heavy deps (onnx models) only when there are photos
-        for j, f in enumerate(photos):
-            try:
-                files = files + photo_video(f, JOB, f"shot{j}")
-            except Exception as e:  # the plain photo still works without them; say so in the log
-                print(f"  photo shots skipped for {f.name}: {e}", flush=True)
+    # each photo becomes full-frame vertical shots (pan, close-ups, hero, drive); the letterboxed photo itself is dropped
+    items = [(f, {}) for f in files if f.suffix.lower() in VID]
+    for j, f in enumerate(f for f in files if f.suffix.lower() in IMG):
+        try:
+            from photo_scenes import photo_video  # heavy deps (onnx models) only when there are photos
+            items += photo_video(f, JOB, f"shot{j}")
+        except Exception as e:  # fall back to the plain photo; say why in the log
+            print(f"  photo shots skipped for {f.name}: {e}", flush=True)
+            items.append((f, {}))
+    has_sil = any("sil" in extra for _, extra in items)
+    style = pick_style(style, has_sil)
+    if style["choices"] and len(name.split()) < 2:  # a brand alone ("Porsche") makes A/B/C unfair
+        style["choices"] = False
+    print("  style:", ", ".join(f"{k}={v}" for k, v in style.items()), flush=True)
+
     clips = []
-    for i, f in enumerate(files):
+    for i, (f, extra) in enumerate(items):
         w, h, d = probe(f)
         ext = ".jpg" if f.suffix.lower() in IMG else ".mp4"
         prep(f, JOB / f"clip{i}{ext}", JOB / f"clip{i}.bg{ext}", GRADES[style["look"]])
@@ -224,6 +248,9 @@ def make(files, name, focus, kind, length, song, out, song_title=None, credit=""
         need = {"glass": ["blur"], "pixel": ["pix1", "pix2"]}.get(style["mechanic"], [])
         for k, p in prep_hidden(JOB / f"clip{i}{ext}", need).items():
             clip[k] = f"job/{p.name}"
+        if "sil" in extra:  # silhouette twin of the hero shot, graded the same way
+            prep(extra["sil"], JOB / f"clip{i}.sil.mp4", JOB / f"clip{i}.silbg.mp4", GRADES[style["look"]])
+            clip["sil"] = f"job/clip{i}.sil.mp4"
         clips.append(clip)
 
     plan = song_plan(song, length)
@@ -233,7 +260,8 @@ def make(files, name, focus, kind, length, song, out, song_title=None, credit=""
     l1, l2, emoji = random.choice(HOOKS[kind])
     props = {"answer": name, "hook": [l1, l2], "emoji": emoji, "clips": clips,
              "plan": {k: plan[k] for k in ("length", "drop", "beats", "downbeats", "strong", "energy")},
-             "music": {"src": f"job/song{song.suffix.lower()}", "start": plan["start"]}, "style": style}
+             "music": {"src": f"job/song{song.suffix.lower()}", "start": plan["start"]}, "style": style,
+             "cta": random.choice(CTAS)}
     if style["choices"]:
         props["choices"] = choices_for(name, kind)
     (JOB / "props.json").write_text(json.dumps(props, ensure_ascii=False), encoding="utf-8")

@@ -148,7 +148,7 @@ export const Choices = ({ style, choices, answer, drop }: { style: Style; choice
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const t = frame / fps;
-  const out = interpolate(t, [drop + 2.2, drop + 2.6], [1, 0], clamp);
+  const out = interpolate(t, [drop + 1.2, drop + 1.5], [1, 0], clamp); // gone before the end prompt pops in
   if (out <= 0) return null;
   return (
     <div style={{ position: "absolute", bottom: 300, width: "100%", display: "flex", flexDirection: "column", alignItems: "center", gap: 22, opacity: out }}>

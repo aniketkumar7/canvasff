@@ -215,6 +215,11 @@ export default function App() {
                   placeholder={kind === "car" ? "Lamborghini SC18" : "Boeing 747"}
                   className="w-full rounded-2xl border border-border bg-background/60 px-4 py-3 text-[17px] font-extrabold tracking-tight outline-none placeholder:font-semibold placeholder:text-muted-foreground/60 focus:border-accent/60"
                 />
+                {name.trim() && name.trim().split(/\s+/).length < 2 && (
+                  <span className="mt-1.5 block text-xs font-semibold text-accent">
+                    Add the model too, e.g. "{name.trim()} 911 GT3". A brand alone makes the quiz vague, and A/B/C gets turned off.
+                  </span>
+                )}
               </label>
               <div>
                 <span className="mb-1.5 block text-[11px] font-extrabold tracking-[0.12em] text-muted-foreground uppercase">Type</span>

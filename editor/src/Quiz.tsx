@@ -30,6 +30,8 @@ export type Clip = {
   blur?: string;
   pix1?: string;
   pix2?: string;
+  /** black-shape-with-glowing-rim twin of a photo hero shot (silhouette mechanic) */
+  sil?: string;
   kind: "video" | "image";
   width: number;
   height: number;
@@ -57,6 +59,8 @@ export type QuizProps = {
   style?: Partial<Style>;
   /** A/B/C options incl. the answer; shown when set. */
   choices?: string[];
+  /** end prompt pill, e.g. "GOT IT? COMMENT 👇" */
+  cta?: string;
 };
 
 type Segment = { from: number; to: number; clip: Clip; src: string; offset: number; rate: number; i: number };
@@ -74,16 +78,32 @@ function buildSegments({ clips, plan }: QuizProps, style: Style): Segment[] {
   const post = beats.filter((t) => t > drop + 0.2 && t < length - 0.3);
   const postCuts = post.filter((_, i) => i < 8 || i % 2 === 0); // every beat, then every 2nd
   const bounds = [0, ...guessCuts, slowFrom, drop, ...postCuts, length];
+  // silhouette: the whole guess phase stays on the hero shot's black-shape twin
+  const silClips = clips.filter((c) => c.sil);
+  const last = bounds.length - 2;
   return bounds.slice(0, -1).map((from, i) => {
     const to = bounds[i + 1];
-    const clip = clips[i % clips.length];
+    const pool = style.mechanic === "silhouette" && from < drop && silClips.length ? silClips : clips;
+    // loop: the final cut goes back to the opening clip, so the replay flows on from the end
+    const clip = i === last && last > 0 ? clips[0] : pool[i % pool.length];
     // speed ramp: after the drop alternate fast / slow-mo cuts
     const rate = from >= slowFrom && from < drop ? 0.35 : style.ramp && from >= drop ? (i % 2 ? 1.7 : 0.5) : 1;
     const room = Math.max(0, (clip.duration ?? 0) - (to - from) * rate - 0.05);
     // before the drop, glass shows the blurred copy and pixel the coarse then medium blocks
     const hidden =
-      from >= drop ? undefined : style.mechanic === "glass" ? clip.blur : style.mechanic === "pixel" ? (from < drop / 2 ? clip.pix1 : clip.pix2) : undefined;
-    return { from, to, clip, src: hidden ?? clip.src, rate, offset: random(`off${i}`) * room, i }; // no mirrored cuts: they reverse plates and badges
+      from >= drop
+        ? undefined
+        : style.mechanic === "glass"
+          ? clip.blur
+          : style.mechanic === "pixel"
+            ? from < drop / 2
+              ? clip.pix1
+              : clip.pix2
+            : style.mechanic === "silhouette"
+              ? clip.sil
+              : undefined;
+    const offset = i === last ? 0 : random(`off${i}`) * room;
+    return { from, to, clip, src: hidden ?? clip.src, rate, offset, i }; // no mirrored cuts: they reverse plates and badges
   });
 }
 
@@ -239,7 +259,10 @@ export const Quiz = (props: QuizProps) => {
     if (style.cut === "flash") flash += 0.45 * Math.exp(-(t - lastCut) * 16);
   }
 
-  const zoom = (after ? 1.06 : guessZoom) + punch;
+  // loop: over the last 0.5s ease back to the opening framing, so the replay starts where the end left off
+  const startZoom = style.mechanic === "zoom" ? 2.4 : 1.0;
+  const back = interpolate(t, [length - 0.5, length], [0, 1], { ...clampX, easing: Easing.inOut(Easing.sin) });
+  const zoom = (after ? 1.06 + (startZoom - 1.06) * back : guessZoom) + punch * (1 - back);
   const sx = (random(`sx${frame}`) - 0.5) * 2 * shakeAmp + whipX;
   const sy = (random(`sy${frame}`) - 0.5) * 2 * shakeAmp;
   const rot = (random(`r${frame}`) - 0.5) * shakeAmp * 0.06 + turn;
@@ -259,10 +282,10 @@ export const Quiz = (props: QuizProps) => {
   const originY = (height - fgH) / 2 + fy * fgH;
 
   // reveal choreography
-  const moveUp = spring({ frame: frame - (drop + 2.4) * fps, fps, config: { damping: 14, stiffness: 120 } });
+  const moveUp = spring({ frame: frame - (drop + 1.3) * fps, fps, config: { damping: 14, stiffness: 140 } });
   const ansY = interpolate(moveUp, [0, 1], [880, 330]);
   const ansScale = interpolate(moveUp, [0, 1], [1, 0.62]);
-  const dim = interpolate(t, [drop, drop + 0.1, drop + 2.4, drop + 2.9], [0, 0.55, 0.55, 0.12], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  const dim = interpolate(t, [drop, drop + 0.1, drop + 1.3, drop + 1.7], [0, 0.55, 0.55, 0.12], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
   const hookExit = interpolate(t, [drop - 0.12, drop], [1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
   const filters = [
     props.clips.every((c) => c.graded) ? "" : "contrast(1.12) saturate(1.25)",
@@ -329,7 +352,7 @@ export const Quiz = (props: QuizProps) => {
               <Reveal style={style} text={answer.toUpperCase()} start={drop + 0.08} />
             </div>
           </div>
-          <PopIn start={drop + 3} style={{ position: "absolute", bottom: 360, width: "100%", display: "flex", justifyContent: "center" }}>
+          <PopIn start={drop + 1.8} style={{ position: "absolute", bottom: 360, width: "100%", display: "flex", justifyContent: "center" }}>
             <div
               style={{
                 ...textBase(style, 58, "black"),
@@ -341,7 +364,7 @@ export const Quiz = (props: QuizProps) => {
                 transform: `scale(${1 + beatPulse * 0.06})`,
               }}
             >
-              GOT IT? COMMENT 👇
+              {props.cta ?? "GOT IT? COMMENT 👇"}
             </div>
           </PopIn>
         </>
