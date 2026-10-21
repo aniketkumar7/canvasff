@@ -31,7 +31,7 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-danger: var(--danger);
   --color-ok: var(--ok);
-  --font-sans: "Montserrat", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
 }
 
 html {
@@ -40,12 +40,10 @@ html {
 body {
   margin: 0;
   min-height: 100dvh;
-  background:
-    radial-gradient(1200px 600px at 85% -10%, color-mix(in oklab, var(--accent) 7%, transparent), transparent 60%),
-    radial-gradient(900px 500px at -10% 110%, color-mix(in oklab, #6d5cff 6%, transparent), transparent 60%),
-    var(--background);
+  background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans);
+  font-feature-settings: "cv11", "ss01"; /* Inter: simpler a, straight 1 */
   -webkit-font-smoothing: antialiased;
   /* installed app on a notched phone draws edge to edge */
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
@@ -55,7 +53,22 @@ body {
   background: color-mix(in oklab, var(--accent) 35%, transparent);
 }
 
-:focus-visible {
+/* buttons/links get a ring; text fields show focus with their own accent border instead (no double ring) */
+:focus-visible:not(input, textarea) {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
+}
+input:focus-visible,
+textarea:focus-visible {
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

@@ -45,7 +45,9 @@ export function createJob(form: FormData, onProgress: (ratio: number) => void): 
 
 /** A NoCopyrightSounds track (free for Shorts with its credit in the description). */
 export type NcsTrack = { id: string; title: string; artist: string; genre: string; cover: string; url: string };
-export type NcsGenre = "phonk" | "brazilian";
+/** Genre id from GET /music/genres (phonk, trap, dnb, ...). */
+export type NcsGenre = string;
+export type NcsGenreOption = { id: NcsGenre; label: string };
 
 async function json<T>(path: string): Promise<T> {
   const r = await fetch(`${API}${path}`);
@@ -54,7 +56,30 @@ async function json<T>(path: string): Promise<T> {
   return body as T;
 }
 
-export const getMusic = (genre: NcsGenre) => json<NcsTrack[]>(`/music?genre=${genre}`);
+/** One page (10 tracks) of a genre or search; `more` = another page exists. */
+export type NcsPage = { items: NcsTrack[]; more: boolean };
+export const getMusic = (genre: NcsGenre, page = 0) => json<NcsPage>(`/music?genre=${encodeURIComponent(genre)}&page=${page}`);
+export const searchMusic = (q: string, page = 0) => json<NcsPage>(`/music?q=${encodeURIComponent(q)}&page=${page}`);
+export const getGenres = () => json<NcsGenreOption[]>("/music/genres");
+
+/** A free photo from a search (Unsplash, Pexels, Pixabay, Wikimedia). The server downloads it by (source, id). */
+export type Photo = {
+  source: string;
+  id: string;
+  thumb: string;
+  full: string;
+  width: number;
+  height: number;
+  author: string;
+  license: string;
+  credit: string;
+  page: string;
+};
+export type PhotoPage = { items: Photo[]; more: boolean };
+export type PhotoSource = { id: string; label: string };
+export const getPhotoSources = () => json<PhotoSource[]>("/photos/sources");
+export const searchPhotos = (source: string, q: string, page = 0) =>
+  json<PhotoPage>(`/photos?source=${encodeURIComponent(source)}&q=${encodeURIComponent(q)}&page=${page}`);
 export const getCredit = (id: string) => json<{ credit: string }>(`/music/${encodeURIComponent(id)}/credit`).then((r) => r.credit);
 
 export async function getJob(id: string): Promise<Job> {

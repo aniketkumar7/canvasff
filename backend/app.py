@@ -9,11 +9,12 @@ Render's free disk is wiped on restart/deploy, so download your video once it's 
 """
 import hmac, json, os, pathlib, re, shutil, time, urllib.request, uuid, zipfile
 
-from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 import ncs
+import photos
 
 DATA = pathlib.Path(os.environ.get("DATA_DIR", "/tmp/canvasff"))
 GH_REPO, GH_TOKEN = os.environ.get("GH_REPO", ""), os.environ.get("GH_TOKEN", "")
@@ -116,18 +117,52 @@ def parse_style(raw: str) -> dict:
     return {k: (v == "on") if v in ("on", "off") else v for k, v in s.items()}
 
 
+def parse_picked(raw: str) -> list[tuple[str, str]]:
+    """Photos picked in the web app's search: JSON [{source, id}] -> [(source, id)], at most 5, sources we offer."""
+    if not raw.strip():
+        return []
+    try:
+        items = json.loads(raw)
+        picks = [(str(p["source"]), str(p["id"])[:300]) for p in items]
+    except (ValueError, TypeError, KeyError):
+        raise HTTPException(422, "picked must be JSON [{source, id}]")
+    offered = {s["id"] for s in photos.sources()}
+    if len(picks) > 5 or any(s not in offered for s, _ in picks):
+        raise HTTPException(422, "pick up to 5 photos from the offered sources")
+    return picks
+
+
+@app.get("/photos/sources")
+def photo_sources():
+    return photos.sources()
+
+
+@app.get("/photos")
+def photo_search(source: str, q: str = Query(..., min_length=2, max_length=80), page: int = Query(0, ge=0, le=50)):
+    """10 free photos per page from one source; the web app asks for more as you scroll."""
+    if source not in {s["id"] for s in photos.sources()}:
+        raise HTTPException(422, "unknown or unconfigured photo source")
+    try:
+        return photos.search(source, q, page)
+    except (OSError, ValueError, KeyError) as e:
+        raise HTTPException(502, f"couldn't search {photos.LABELS[source]}: {e}")
+
+
 @app.post("/jobs")
 def create_job(name: str = Form(..., max_length=40), kind: str = Form("car"), length: float = Form(10),
                focus: str = Form(""), credit: str = Form("", max_length=600),
-               media: list[UploadFile] = File(...), song: UploadFile | None = File(None),
-               song_ncs: str = Form("", max_length=80), style: str = Form("", max_length=600)):
+               media: list[UploadFile] | None = File(None), song: UploadFile | None = File(None),
+               song_ncs: str = Form("", max_length=80), style: str = Form("", max_length=600),
+               picked: str = Form("", max_length=2000)):
     name = name.strip()
+    media = media or []
     style_pick = parse_style(style)
+    picks = parse_picked(picked)
     credit = credit.replace("\r\n", "\n")  # browsers send textarea lines as CRLF
     if not name or kind not in ("car", "plane") or not 8 <= length <= 30:
         raise HTTPException(422, "need a name, kind car/plane and length 8-30s")
-    if not 1 <= len(media) <= 10:
-        raise HTTPException(422, "upload 1-10 clips or photos")
+    if not 1 <= len(media) + len(picks) <= 10:
+        raise HTTPException(422, "add 1-10 clips or photos")
     track = None
     if song_ncs:  # a track from the NCS library: the server fetches it itself
         try:
@@ -162,6 +197,12 @@ def create_job(name: str = Form(..., max_length=40), kind: str = Form("car"), le
     try:
         for i, (m, e) in enumerate(zip(media, exts)):
             save(m, d / "media" / f"{i}{e}")
+        photo_credits = []
+        for j, (src, pid) in enumerate(picks):  # searched photos: the server fetches them from the source itself
+            try:
+                photo_credits.append(photos.download(src, pid, d / "media" / f"p{j}.jpg")["credit"])
+            except (OSError, ValueError, KeyError) as e:
+                raise HTTPException(502, f"couldn't get a {photos.LABELS[src]} photo: {e}")
         if track:
             ncs.download(track, d / "song.mp3", 50 << 20)
             credit = credit.strip() or ncs.credit(track["id"])
@@ -173,6 +214,8 @@ def create_job(name: str = Form(..., max_length=40), kind: str = Form("car"), le
     except BaseException:
         shutil.rmtree(d, ignore_errors=True)
         raise
+    if photo_credits:  # photo credits go under the music credit in the description
+        credit = "\n".join([credit.strip(), *dict.fromkeys(photo_credits)]).strip()
     (d / "meta.json").write_text(json.dumps(
         {"name": name, "kind": kind, "length": length, "focus": [fx, fy],
          "song": f"{track['artist']} - {track['title']}" if track else pathlib.Path(song.filename).stem,
@@ -186,14 +229,20 @@ def create_job(name: str = Form(..., max_length=40), kind: str = Form("car"), le
 
 
 @app.get("/music")
-def music(genre: str = "phonk"):
-    """NCS tracks for the song picker (free to use with the credit in the description)."""
-    if genre not in ncs.GENRES:
+def music(genre: str = "phonk", q: str = Query("", max_length=60), page: int = Query(0, ge=0, le=200)):
+    """NCS tracks for the song picker (free to use with the credit in the description): a genre or a search,
+    10 per page as {items, more}; the web app asks for the next page when the list is scrolled to the end."""
+    if not q.strip() and genre not in ncs.GENRES:
         raise HTTPException(422, f"genre must be one of {', '.join(ncs.GENRES)}")
     try:
-        return ncs.tracks(genre)
+        return ncs.search(q, page) if q.strip() else ncs.tracks(genre, page)
     except OSError as e:
         raise HTTPException(502, f"couldn't reach ncs.io: {e}")
+
+
+@app.get("/music/genres")
+def music_genres():
+    return [{"id": k, "label": label} for k, (_, label) in ncs.GENRES.items()]
 
 
 @app.get("/music/{slug}/credit")

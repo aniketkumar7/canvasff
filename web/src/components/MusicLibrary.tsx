@@ -2,34 +2,76 @@ import * as React from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Check, Pause, Play, RefreshCw, Search, ShieldCheck } from "lucide-react";
 import { cn } from "cn";
-import { getMusic, type NcsGenre, type NcsTrack } from "../lib/api";
-import { Segmented, SongPlayer } from "./Form";
+import { getGenres, getMusic, searchMusic, type NcsGenre, type NcsGenreOption, type NcsTrack } from "../lib/api";
+import { SongPlayer } from "./Form";
 
 /** Preview starts this far in, past most intros, so you hear the beat. */
 const PREVIEW_FROM = 30;
+/** Typing this many letters searches the whole NCS catalogue instead of filtering the genre list. */
+const SEARCH_FROM = 3;
+const FALLBACK_GENRES: NcsGenreOption[] = [
+  { id: "phonk", label: "Phonk" },
+  { id: "brazilian", label: "Brazilian Phonk" },
+];
 
-/** Picker over NoCopyrightSounds phonk: browse, preview, pick. The server
+/** Picker over NoCopyrightSounds: browse genres or search everything, preview, pick. The server
  *  fetches the picked track itself and adds its required credit. */
 export function MusicLibrary({ value, onChange }: { value: NcsTrack | null; onChange: (t: NcsTrack | null) => void }) {
+  const [genres, setGenres] = React.useState<NcsGenreOption[]>(FALLBACK_GENRES);
   const [genre, setGenre] = React.useState<NcsGenre>("phonk");
-  const [lists, setLists] = React.useState<Partial<Record<NcsGenre, NcsTrack[]>>>({});
+  /** per genre/search: tracks loaded so far, next page number, whether more exist, a request in flight */
+  const [lists, setLists] = React.useState<Record<string, { items: NcsTrack[]; next: number; more: boolean; loading: boolean }>>({});
+  const sentinel = React.useRef<HTMLLIElement>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [query, setQuery] = React.useState("");
+  const [debounced, setDebounced] = React.useState("");
   const [previewing, setPreviewing] = React.useState<string | null>(null);
   const audio = React.useRef<HTMLAudioElement | null>(null);
   const [attempt, setAttempt] = React.useState(0);
 
   React.useEffect(() => {
-    if (lists[genre]) return;
-    let alive = true;
+    getGenres().then(setGenres).catch(() => {}); // keep the two built-in genres if this fails
+  }, []);
+  React.useEffect(() => {
+    const t = setTimeout(() => setDebounced(query.trim()), 400);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  const searching = debounced.length >= SEARCH_FROM;
+  const key = searching ? `q:${debounced.toLowerCase()}` : `g:${genre}`;
+  const cur = lists[key];
+  // load the next 10 for the current genre/search (first page on open, then whenever the list end scrolls into view)
+  const loadMore = React.useCallback(() => {
+    const s = lists[key];
+    if (s && (s.loading || !s.more)) return;
+    const page = s?.next ?? 0;
     setError(null);
-    getMusic(genre)
-      .then((l) => alive && setLists((s) => ({ ...s, [genre]: l })))
-      .catch((e: Error) => alive && setError(e.message));
-    return () => {
-      alive = false;
-    };
-  }, [genre, attempt, lists]);
+    setLists((all) => ({ ...all, [key]: { items: s?.items ?? [], next: page, more: true, loading: true } }));
+    (searching ? searchMusic(debounced, page) : getMusic(genre, page))
+      .then((r) =>
+        setLists((all) => {
+          const prev = all[key]?.items ?? [];
+          const seen = new Set(prev.map((t) => t.id));
+          return { ...all, [key]: { items: [...prev, ...r.items.filter((t) => !seen.has(t.id))], next: page + 1, more: r.more, loading: false } };
+        }),
+      )
+      .catch((e: Error) => {
+        setError(e.message);
+        setLists((all) => ({ ...all, [key]: { ...(all[key] ?? { items: [], next: page, more: true }), loading: false } }));
+      });
+  }, [lists, key, searching, debounced, genre]);
+
+  React.useEffect(() => {
+    if (!lists[key]) loadMore();
+  }, [key, attempt]); // eslint-disable-line react-hooks/exhaustive-deps -- first page per genre/search only
+
+  React.useEffect(() => {
+    const el = sentinel.current;
+    if (!el) return;
+    const io = new IntersectionObserver(([e]) => e.isIntersecting && loadMore(), { rootMargin: "120px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [loadMore]);
 
   // one shared preview player; stop it when leaving
   React.useEffect(() => () => audio.current?.pause(), []);
@@ -68,34 +110,40 @@ export function MusicLibrary({ value, onChange }: { value: NcsTrack | null; onCh
       />
     );
 
-  const list = lists[genre];
+  const list = cur && (cur.items.length || !cur.loading) ? cur.items : undefined;
   const q = query.trim().toLowerCase();
-  const shown = list?.filter((t) => !q || `${t.title} ${t.artist}`.toLowerCase().includes(q));
+  // short queries filter the loaded genre right away; longer ones show the catalogue-wide search results
+  const shown = searching ? list : list?.filter((t) => !q || `${t.title} ${t.artist}`.toLowerCase().includes(q));
 
   return (
     <div>
-      <div className="flex flex-col gap-2.5 sm:flex-row">
-        <div className="sm:w-[260px]">
-          <Segmented
-            id="genre"
-            value={genre}
-            onChange={setGenre}
-            options={[
-              { value: "phonk", label: "Phonk" },
-              { value: "brazilian", label: "Brazilian" },
-            ]}
-          />
+      <label className="relative block">
+        <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-muted-foreground" />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search all NCS songs (title or artist)"
+          className="w-full rounded-2xl border border-border bg-background/60 py-2.5 pr-3 pl-10 text-sm outline-none placeholder:text-muted-foreground/70 focus:border-accent/60"
+        />
+      </label>
+      {!searching && (
+        <div className="-mx-1 mt-2.5 flex gap-1.5 overflow-x-auto px-1 pb-1 [scrollbar-width:none]">
+          {genres.map((g) => (
+            <button
+              key={g.id}
+              type="button"
+              aria-pressed={genre === g.id}
+              onClick={() => setGenre(g.id)}
+              className={cn(
+                "shrink-0 rounded-full border px-3 py-1.5 text-xs font-bold transition-colors",
+                genre === g.id ? "border-accent bg-accent text-accent-foreground" : "border-border bg-background/60 text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {g.label}
+            </button>
+          ))}
         </div>
-        <label className="relative flex-1">
-          <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search title or artist"
-            className="h-full w-full rounded-2xl border border-border bg-background/60 py-2.5 pr-3 pl-10 text-sm outline-none placeholder:text-muted-foreground/70 focus:border-accent/60"
-          />
-        </label>
-      </div>
+      )}
 
       <div className="mt-3 max-h-[340px] overflow-y-auto overscroll-contain rounded-2xl border border-border bg-background/40 p-1.5 [scrollbar-color:var(--border)_transparent]">
         {error ? (
@@ -103,7 +151,7 @@ export function MusicLibrary({ value, onChange }: { value: NcsTrack | null; onCh
             <p className="text-sm text-muted-foreground">{error}</p>
             <button
               type="button"
-              onClick={() => setAttempt((n) => n + 1)}
+              onClick={() => (cur ? loadMore() : setAttempt((n) => n + 1))}
               className="flex items-center gap-1.5 rounded-full bg-white/[0.06] px-3 py-1.5 text-xs font-bold hover:bg-white/10"
             >
               <RefreshCw className="size-3.5" /> Try again
@@ -173,6 +221,13 @@ export function MusicLibrary({ value, onChange }: { value: NcsTrack | null; onCh
                 );
               })}
             </AnimatePresence>
+            {/* reaching this loads the next 10 */}
+            {cur?.more && (
+              <li ref={sentinel} className="flex items-center justify-center gap-2 py-3 text-xs font-semibold text-muted-foreground">
+                {cur.loading && <RefreshCw className="size-3.5 animate-spin" />}
+                {cur.loading ? "Loading more…" : "Scroll for more"}
+              </li>
+            )}
           </ul>
         )}
       </div>
