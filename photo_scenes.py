@@ -240,16 +240,103 @@ def drive(rgb, mask, out, seconds=3.0, direction=1):
     return run(out, int(seconds * FPS), frame)
 
 
-def photo_video(photo: pathlib.Path, outdir: pathlib.Path, tag: str) -> list[tuple[pathlib.Path, dict]]:
-    """All vertical shots for one photo, as (mp4, extra clip fields). The hero shot carries its silhouette twin."""
+def _pieces(a, seed, cols=7, rows=5):
+    """Jittered triangles over the car layer; only the ones that actually hold part of the car."""
+    h, w = a.shape
+    rng = np.random.default_rng(seed)
+    grid = {}
+    for r in range(rows + 1):
+        for c in range(cols + 1):
+            edge = r in (0, rows) or c in (0, cols)
+            jx, jy = (0, 0) if edge else rng.uniform(-0.32, 0.32, 2)
+            grid[r, c] = ((c + jx) / cols * w, (r + jy) / rows * h)
+    out = []
+    for r in range(rows):
+        for c in range(cols):
+            q = [grid[r, c], grid[r, c + 1], grid[r + 1, c + 1], grid[r + 1, c]]
+            for tri in ([q[0], q[1], q[2]], [q[0], q[2], q[3]]) if rng.random() < 0.5 else ([q[0], q[1], q[3]], [q[1], q[2], q[3]]):
+                m = np.zeros((h, w), np.float32)
+                cv2.fillConvexPoly(m, np.int32(tri), 1.0, lineType=cv2.LINE_AA)
+                if (m * a).sum() > 60:
+                    out.append(m)
+    return out
+
+
+def assemble(rgb, mask, out, beats, drop, bg_kind, seed):
+    """The car in ~40 scattered pieces that fly into place on the beats; the last piece lands on the drop.
+    Sharp and colourful from frame 1 (curiosity without blur), then the finished car holds a moment."""
+    car, a = car_layer(rgb, mask, width_frac=0.94)
+    bg = background(bg_kind, seed)
+    h, w = a.shape
+    x0, y0 = int(OW / 2 - w / 2), int(OH * 0.62 - h)  # where the finished car sits in the frame
+    rng = np.random.default_rng(seed + 7)
+    pieces = _pieces(a, seed)
+    rng.shuffle(pieces)
+    # landing times: groups of pieces on the beats before the drop, the final group exactly on the drop
+    slots = [b for b in beats if 0.35 < b < drop - 0.2] + [drop]
+    lands = [slots[min(int(i * len(slots) / len(pieces)), len(slots) - 1)] for i in range(len(pieces))]
+    lands[-1] = drop
+    fly = 0.4  # seconds each piece takes to fly in
+    starts = []
+    for m in pieces:
+        ys, xs = np.nonzero(m > 0.5)
+        cx, cy = (xs.mean(), ys.mean()) if xs.size else (w / 2, h / 2)
+        # scattered pose: pushed away from the car's centre, turned and a bit smaller
+        ang = rng.uniform(0, 2 * np.pi)
+        dist = rng.uniform(260, 620)
+        starts.append(((cx, cy), (np.cos(ang) * dist, np.sin(ang) * dist * 1.4), rng.uniform(-200, 200), rng.uniform(0.7, 0.95)))
+    # each piece cropped to its own box, as one 4-channel patch (colour + alpha), so a frame only ever
+    # transforms and blends small regions instead of 40 full 1080x1920 layers
+    patches = []
+    for m in pieces:
+        ys, xs = np.nonzero(m > 0)
+        bx0, by0, bx1, by1 = xs.min(), ys.min(), xs.max() + 1, ys.max() + 1
+        rgba = np.dstack([car[by0:by1, bx0:bx1] * m[by0:by1, bx0:bx1, None], (a * m)[by0:by1, bx0:bx1]]).astype(np.float32)
+        patches.append((rgba, bx0, by0))
+
+    def frame(i, k):
+        t = i / FPS
+        f = bg(k).copy()
+        if t >= drop:  # all in place: draw the whole car (no seams between pieces)
+            return paste(f, car, a, OW / 2, y0 + h, reflect=False)
+        for (rgba, bx0, by0), ((cx, cy), (dx, dy), rot, sc), land in zip(patches, starts, lands):
+            p = min(max((t - (land - fly)) / fly, 0.0), 1.0)
+            e = 1 - (1 - p) ** 4  # ease-out quart: fast start, soft landing
+            # car-layer coords -> frame coords: turn/scale about the piece centre, then move it
+            m = cv2.getRotationMatrix2D((float(cx), float(cy)), float(rot * (1 - e)), float(sc + (1 - sc) * e))
+            m[0, 2] += x0 + dx * (1 - e)
+            m[1, 2] += y0 + dy * (1 - e)
+            m[:, 2] += m[:, :2] @ np.float64([bx0, by0])  # source is the cropped patch, not the whole layer
+            ph, pw = rgba.shape[:2]
+            corners = np.float64([[0, 0, 1], [pw, 0, 1], [0, ph, 1], [pw, ph, 1]]) @ m.T
+            rx0, ry0 = np.floor(corners.min(0)).astype(int)
+            rx1, ry1 = np.ceil(corners.max(0)).astype(int)
+            rx0, ry0, rx1, ry1 = max(rx0, 0), max(ry0, 0), min(rx1, OW), min(ry1, OH)
+            if rx1 <= rx0 or ry1 <= ry0:
+                continue  # scattered off-screen
+            m[0, 2] -= rx0
+            m[1, 2] -= ry0
+            w4 = cv2.warpAffine(rgba, m, (rx1 - rx0, ry1 - ry0), flags=cv2.INTER_LINEAR)
+            al = w4[..., 3:4]
+            roi = f[ry0:ry1, rx0:rx1]
+            f[ry0:ry1, rx0:rx1] = roi * (1 - al) + w4[..., :3] * al
+        return f
+    return run(out, int((drop + 0.3) * FPS), frame)
+
+
+def photo_video(photo: pathlib.Path, outdir: pathlib.Path, tag: str, beats=None, drop=None) -> list[tuple[pathlib.Path, dict]]:
+    """All vertical shots for one photo, as (mp4, extra clip fields). The hero shot carries its silhouette twin,
+    and (when beats + drop are given) its assemble twin, timed to the song."""
     rgb, mask, depth = load_full(photo)
     seed = sum(map(ord, tag + photo.name))
     bg_kind = BACKGROUNDS[seed % len(BACKGROUNDS)]
     p = lambda name: outdir / f"{tag}.{name}.mp4"
     shots = [(pan(rgb, mask, depth, p("pan")), {})]
     shots += [(detail(rgb, mask, p(f"detail{j}"), pt), {}) for j, pt in enumerate(detail_points(rgb, mask))]
-    sil = hero(rgb, mask, p("sil"), bg_kind, seed, silhouette=True)
-    shots.append((hero(rgb, mask, p("hero"), bg_kind, seed), {"sil": sil}))
+    extra = {"sil": hero(rgb, mask, p("sil"), bg_kind, seed, silhouette=True)}
+    if drop:
+        extra["asm"] = assemble(rgb, mask, p("asm"), beats or [], drop, bg_kind, seed)
+    shots.append((hero(rgb, mask, p("hero"), bg_kind, seed), extra))
     shots.append((drive(rgb, mask, p("drive"), direction=1 if seed % 2 else -1), {}))
     return shots
 

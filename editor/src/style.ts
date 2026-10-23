@@ -3,7 +3,7 @@ import { loadFont as loadAnton } from "@remotion/google-fonts/Anton";
 import { loadFont as loadBebas } from "@remotion/google-fonts/BebasNeue";
 
 /** How the car is hidden while viewers guess. */
-export const MECHANICS = ["zoom", "glass", "pixel", "spotlight", "tiles", "silhouette"] as const;
+export const MECHANICS = ["zoom", "glass", "pixel", "spotlight", "tiles", "silhouette", "assemble"] as const;
 /** How the answer text lands on the drop. */
 export const REVEALS = ["slam", "scramble", "stamp", "split"] as const;
 /** The hit on the drop itself. "shatter" only pairs with the glass mechanic. */

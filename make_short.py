@@ -75,7 +75,7 @@ DECOYS = {  # same-brand models make the best decoys
 HISTORY = ROOT / "output" / ".style-history.json"
 
 
-def pick_style(override=None, has_sil=False):
+def pick_style(override=None, has_photos=False):
     """A fresh mix of effects per reel. Mechanic, reveal and look never repeat the last 3 reels.
     Silhouette needs a cut-out car, so it's only an option when a photo was turned into shots."""
     hist = json.loads(HISTORY.read_text()) if HISTORY.exists() else []
@@ -83,7 +83,8 @@ def pick_style(override=None, has_sil=False):
     # "Surprise me" only opens with a crisp first frame (sharp close-up or glowing silhouette) and hook text that is
     # fully readable at frame 0. Pixel/blur/spotlight/tiles and typewriter/word-by-word hooks looked like a broken
     # video in the feed (70% swiped in the first second); they stay available when picked in the web app.
-    options = {**OPTIONS, "mechanic": ["zoom"] + ["silhouette"] * has_sil, "hook": ["pop", "glitch", "marker"],
+    # Assemble (pieces fly together on the beats) is weighted up: curiosity from frame 1 with nothing blurred.
+    options = {**OPTIONS, "mechanic": ["zoom"] + ["silhouette", "assemble", "assemble"] * has_photos, "hook": ["pop", "glitch", "marker"],
                "look": [k for k in GRADES if k != "mono2color"]}
     for key, opts in options.items():
         recent = {h.get(key) for h in hist[-3:]} if key in ("mechanic", "reveal", "look") else set()
@@ -94,7 +95,7 @@ def pick_style(override=None, has_sil=False):
     style["bars"] = random.random() < 0.3
     style["choices"] = random.random() < 0.7  # A/B/C gives viewers something to do from second one
     style.update({k: v for k, v in (override or {}).items() if v not in (None, "", "random")})
-    if style["mechanic"] == "silhouette" and not has_sil:  # picked in the web app but only videos uploaded
+    if style["mechanic"] in ("silhouette", "assemble") and not has_photos:  # picked in the web app, but only videos uploaded
         style["mechanic"] = "zoom"
     try:
         HISTORY.parent.mkdir(exist_ok=True)
@@ -229,19 +230,28 @@ def make(files, name, focus, kind, length, song, out, song_title=None, credit=""
         return print("  skip (no clips/photos):", name)
     shutil.rmtree(JOB, ignore_errors=True)
     JOB.mkdir(parents=True, exist_ok=True)  # Windows: folder may survive rmtree if something has it open
+    # the song comes first: Assemble lands its pieces on the beats, so the photo shots need the beat grid
+    plan = song_plan(song, length)
+    if plan["drop"] is None:  # no clear drop: reveal where the build-up would end
+        plan["drop"] = build_for(length)
+    photos = [f for f in files if f.suffix.lower() in IMG]
+    style = pick_style(style, bool(photos))
+    if style["choices"] and len(name.split()) < 2:  # a brand alone ("Porsche") makes A/B/C unfair
+        style["choices"] = False
+
     # each photo becomes full-frame vertical shots (pan, close-ups, hero, drive); the letterboxed photo itself is dropped
     items = [(f, {}) for f in files if f.suffix.lower() in VID]
-    for j, f in enumerate(f for f in files if f.suffix.lower() in IMG):
+    for j, f in enumerate(photos):
         try:
             from photo_scenes import photo_video  # heavy deps (onnx models) only when there are photos
-            items += photo_video(f, JOB, f"shot{j}")
+            timed = style["mechanic"] == "assemble" and j == 0  # one assemble clip is enough (~20s to make)
+            items += photo_video(f, JOB, f"shot{j}", plan["beats"] if timed else None, plan["drop"] if timed else None)
         except Exception as e:  # fall back to the plain photo; say why in the log
             print(f"  photo shots skipped for {f.name}: {e}", flush=True)
             items.append((f, {}))
-    has_sil = any("sil" in extra for _, extra in items)
-    style = pick_style(style, has_sil)
-    if style["choices"] and len(name.split()) < 2:  # a brand alone ("Porsche") makes A/B/C unfair
-        style["choices"] = False
+    needs = {"silhouette": "sil", "assemble": "asm"}.get(style["mechanic"])
+    if needs and not any(needs in extra for _, extra in items):  # photo shots failed: open on the zoom instead
+        style["mechanic"] = "zoom"
     print("  style:", ", ".join(f"{k}={v}" for k, v in style.items()), flush=True)
 
     clips = []
@@ -254,14 +264,12 @@ def make(files, name, focus, kind, length, song, out, song_title=None, credit=""
         need = {"glass": ["blur"], "pixel": ["pix1", "pix2"]}.get(style["mechanic"], [])
         for k, p in prep_hidden(JOB / f"clip{i}{ext}", need).items():
             clip[k] = f"job/{p.name}"
-        if "sil" in extra:  # silhouette twin of the hero shot, graded the same way
-            prep(extra["sil"], JOB / f"clip{i}.sil.mp4", JOB / f"clip{i}.silbg.mp4", GRADES[style["look"]])
-            clip["sil"] = f"job/clip{i}.sil.mp4"
+        for k in ("sil", "asm"):  # silhouette / assemble twins of the hero shot, graded the same way
+            if k in extra:
+                prep(extra[k], JOB / f"clip{i}.{k}.mp4", JOB / f"clip{i}.{k}bg.mp4", GRADES[style["look"]])
+                clip[k] = f"job/clip{i}.{k}.mp4"
         clips.append(clip)
 
-    plan = song_plan(song, length)
-    if plan["drop"] is None:  # no clear drop: reveal where the build-up would end
-        plan["drop"] = build_for(length)
     shutil.copy(song, JOB / f"song{song.suffix.lower()}")
     l1, l2, emoji = random.choice(HOOKS[kind])
     props = {"answer": name, "hook": [l1, l2], "emoji": emoji, "clips": clips,

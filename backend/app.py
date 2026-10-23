@@ -90,7 +90,7 @@ def health():
 
 
 STYLE = {  # allowed style picks from the web app (same names as OPTIONS in make_short.py)
-    "mechanic": {"zoom", "glass", "pixel", "spotlight", "tiles", "silhouette"},
+    "mechanic": {"zoom", "glass", "pixel", "spotlight", "tiles", "silhouette", "assemble"},
     "reveal": {"slam", "scramble", "stamp", "split"},
     "dropFx": {"flash", "zoomThrough", "glitch", "whip", "shatter"},
     "cut": {"punch", "whip", "spin", "zoom", "flash"},

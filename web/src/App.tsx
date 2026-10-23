@@ -6,7 +6,7 @@ import { GenerationFrame, type FrameState } from "./components/GenerationFrame";
 import { MediaDrop, FocusPicker, Segmented, SongDrop, isVideo, useObjectUrl } from "./components/Form";
 import { RecentList, StatusLine, UploadFields } from "./components/Result";
 import { MusicLibrary } from "./components/MusicLibrary";
-import { StylePicker, styleForForm, type StyleChoice } from "./components/StylePicker";
+import { DEFAULT_STYLE, StylePicker, lookLabel, styleForForm, type StyleChoice } from "./components/StylePicker";
 import { PhotoSearch } from "./components/PhotoSearch";
 import { createJob, getCredit, getJob, JobGone, videoUrl, type Job, type NcsTrack, type Photo } from "./lib/api";
 import { CURRENT, RECENT, remember, store, type Recent } from "./lib/store";
@@ -17,7 +17,7 @@ const STEPS = [
   { title: "Which car is it?", help: "This is the answer revealed on the drop. Use the full model name." },
   { title: "Add photos", help: "Pick 1–3 free photos or upload your own. Each photo becomes several moving shots." },
   { title: "Pick the music", help: "Free NoCopyrightSounds tracks. The best part is cut to the drop for you." },
-  { title: "Choose a style", help: "Leave it on Surprise me for a fresh look every time, or pick the details." },
+  { title: "Choose a look", help: "How the car is hidden before the reveal. Colours, fonts and cuts change by themselves every time." },
   { title: "Ready to generate", help: "Check everything once. The Short renders in the cloud in about 3–5 minutes." },
 ] as const;
 
@@ -166,7 +166,7 @@ export default function App() {
   const [editCredit, setEditCredit] = React.useState(false);
   const [name, setName] = React.useState("");
   const [length, setLength] = React.useState("10");
-  const [style, setStyle] = React.useState<StyleChoice>({});
+  const [style, setStyle] = React.useState<StyleChoice>(DEFAULT_STYLE);
   const [picked, setPicked] = React.useState<Photo[]>([]);
   const [footage, setFootage] = React.useState<"search" | "upload">("search");
   const [step, setStep] = React.useState(0);
@@ -526,7 +526,7 @@ export default function App() {
                     onEdit={() => setStep(1)}
                   />
                   <Row name="Music" value={source === "ncs" ? `${ncs?.artist} – ${ncs?.title}` : song?.name} onEdit={() => setStep(2)} />
-                  <Row name="Style" value={`${Object.keys(styleForForm(style)).length ? "Custom" : "Surprise me"} · ${length}s`} onEdit={() => setStep(3)} />
+                  <Row name="Look" value={`${lookLabel(style.mechanic)} · ${length}s`} onEdit={() => setStep(3)} />
                 </div>
               )}
             </motion.section>

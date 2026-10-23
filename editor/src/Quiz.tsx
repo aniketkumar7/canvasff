@@ -32,6 +32,8 @@ export type Clip = {
   pix2?: string;
   /** black-shape-with-glowing-rim twin of a photo hero shot (silhouette mechanic) */
   sil?: string;
+  /** pieces-fly-together twin, timed to this song's beats; ends exactly on the drop (assemble mechanic) */
+  asm?: string;
   kind: "video" | "image";
   width: number;
   height: number;
@@ -77,12 +79,17 @@ function buildSegments({ clips, plan }: QuizProps, style: Style): Segment[] {
   const guessCuts = downbeats.filter((t) => t > 0.8 && t < slowFrom - 0.6);
   const post = beats.filter((t) => t > drop + 0.2 && t < length - 0.3);
   const postCuts = post.filter((_, i) => i < 8 || i % 2 === 0); // every beat, then every 2nd
-  const bounds = [0, ...guessCuts, slowFrom, drop, ...postCuts, length];
+  // assemble: the build-up is one uncut shot played from 0s, so every piece lands on its beat
+  const asmClip = style.mechanic === "assemble" ? clips.find((c) => c.asm) : undefined;
+  const bounds = asmClip ? [0, drop, ...postCuts, length] : [0, ...guessCuts, slowFrom, drop, ...postCuts, length];
   // silhouette: the whole guess phase stays on the hero shot's black-shape twin
   const silClips = clips.filter((c) => c.sil);
   const last = bounds.length - 2;
   return bounds.slice(0, -1).map((from, i) => {
     const to = bounds[i + 1];
+    if (asmClip?.asm && from < drop) {
+      return { from, to, clip: asmClip, src: asmClip.asm, rate: 1, offset: 0, i }; // real time: pieces land on the beats
+    }
     const pool = style.mechanic === "silhouette" && from < drop && silClips.length ? silClips : clips;
     // loop: the final cut goes back to the opening clip, so the replay flows on from the end
     const clip = i === last && last > 0 ? clips[0] : pool[i % pool.length];

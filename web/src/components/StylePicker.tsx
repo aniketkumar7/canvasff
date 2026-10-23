@@ -1,110 +1,76 @@
-import * as React from "react";
-import { Dices } from "lucide-react";
+import { Check } from "lucide-react";
 import { cn } from "cn";
-import { Segmented } from "./Form";
 
-/** Every style option the renderer knows (keep in sync with OPTIONS in make_short.py and STYLE in backend/app.py). */
-export const STYLE_OPTIONS = {
-  mechanic: { label: "Hide the car", options: { zoom: "Zoom out", glass: "Frosted glass", pixel: "Pixelated", spotlight: "Spotlight", tiles: "Tiles", silhouette: "Silhouette (photos)" } },
-  reveal: { label: "Answer reveal", options: { slam: "Slam", scramble: "Decode", stamp: "Stamp", split: "Split" } },
-  dropFx: { label: "Drop hit", options: { flash: "Flash", zoomThrough: "Zoom through", glitch: "Glitch", whip: "Whip pan", shatter: "Shatter (glass)" } },
-  cut: { label: "Beat cuts", options: { punch: "Punch", whip: "Whip", spin: "Spin", zoom: "Zoom", flash: "Flash" } },
-  look: { label: "Look", options: { clean: "Clean", neon: "Neon", tealOrange: "Teal & orange", film: "Film", night: "Night", mono2color: "B&W → colour" } },
-  hook: { label: "Hook text", options: { pop: "Pop", words: "Word by word", type: "Typewriter", glitch: "Glitch", marker: "Marker" } },
-  font: { label: "Font", options: { montserrat: "Montserrat", anton: "Anton", bebas: "Bebas" } },
-  accent: { label: "Colour", options: { "#FFD400": "Yellow", "#00E5FF": "Cyan", "#FF2D55": "Red", "#B6FF00": "Lime", "#FF7A00": "Orange" } },
-  ramp: { label: "Speed ramps", options: { on: "On", off: "Off" } },
-  bars: { label: "Cinematic bars", options: { on: "On", off: "Off" } },
-  choices: { label: "A/B/C choices", options: { on: "On", off: "Off" } },
-} as const;
+/** The openings you can pick, each with a short looping preview from public/styles/<id>.mp4.
+ *  Keep ids in sync with OPTIONS in make_short.py and STYLE in backend/app.py.
+ *  Everything else (colour look, font, cuts, hook text) is mixed automatically per Short. */
+export const LOOKS = [
+  { id: "assemble", label: "Assemble", note: "Pieces fly together on the beat", photos: true },
+  { id: "silhouette", label: "Silhouette", note: "Glowing outline, colour on the drop", photos: true },
+  { id: "zoom", label: "Zoom out", note: "Starts on one detail, pulls back" },
+  { id: "glass", label: "Frosted glass", note: "Cracks, then shatters on the drop" },
+  { id: "pixel", label: "Pixelated", note: "Blocks clear up beat by beat" },
+  { id: "spotlight", label: "Spotlight", note: "A light wanders in the dark" },
+  { id: "tiles", label: "Tiles", note: "Covers flip away on each beat" },
+] as const;
 
-export type StyleKey = keyof typeof STYLE_OPTIONS;
-/** "random" (or a missing key) leaves that part to the renderer's no-repeat picker. */
-export type StyleChoice = Partial<Record<StyleKey, string>>;
-
-const KEYS = Object.keys(STYLE_OPTIONS) as StyleKey[];
-
-/** Only the parts that were actually chosen, for the form. */
-export const styleForForm = (s: StyleChoice): StyleChoice =>
-  Object.fromEntries(Object.entries(s).filter(([, v]) => v && v !== "random"));
+export type LookId = (typeof LOOKS)[number]["id"];
+/** What the form sends: just the chosen opening; the server picks the rest. */
+export type StyleChoice = { mechanic: LookId };
+export const DEFAULT_STYLE: StyleChoice = { mechanic: "assemble" };
+export const styleForForm = (s: StyleChoice): StyleChoice => s;
+export const lookLabel = (id: LookId) => LOOKS.find((l) => l.id === id)?.label ?? id;
 
 export function StylePicker({ value, onChange }: { value: StyleChoice; onChange: (s: StyleChoice) => void }) {
-  const [mode, setMode] = React.useState<"random" | "custom">(Object.keys(styleForForm(value)).length ? "custom" : "random");
-
-  const setMode2 = (m: "random" | "custom") => {
-    setMode(m);
-    if (m === "random") onChange({});
-  };
-  const shuffle = () =>
-    onChange(
-      Object.fromEntries(
-        KEYS.map((k) => {
-          const opts = Object.keys(STYLE_OPTIONS[k].options);
-          return [k, opts[Math.floor(Math.random() * opts.length)]];
-        }),
-      ),
-    );
-
   return (
-    <div>
-      <div className="flex gap-2">
-        <div className="flex-1">
-          <Segmented
-            id="style-mode"
-            value={mode}
-            onChange={setMode2}
-            options={[
-              { value: "random", label: "Surprise me" },
-              { value: "custom", label: "Pick it" },
-            ]}
-          />
-        </div>
-        {mode === "custom" && (
+    <>
+    <div role="radiogroup" aria-label="Opening style" className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+      {LOOKS.map((l) => {
+        const on = value.mechanic === l.id;
+        return (
           <button
+            key={l.id}
             type="button"
-            onClick={shuffle}
-            title="Shuffle every option"
-            className="grid w-12 place-items-center rounded-2xl border border-border bg-muted/60 text-muted-foreground transition hover:text-foreground"
+            role="radio"
+            aria-checked={on}
+            onClick={() => onChange({ mechanic: l.id })}
+            className="group text-left"
           >
-            <Dices className="size-5" />
+            <span
+              className={cn(
+                "relative block aspect-[9/16] overflow-hidden rounded-xl bg-card ring-2 transition-[box-shadow,transform] duration-200",
+                on ? "ring-accent" : "ring-transparent group-hover:ring-white/20",
+              )}
+            >
+              {/* GIF-style loop: muted, inline, no controls; only metadata loads until it scrolls into view */}
+              <video
+                src={`/styles/${l.id}.mp4`}
+                poster={`/styles/${l.id}.jpg`}
+                autoPlay
+                muted
+                loop
+                playsInline
+                preload="metadata"
+                aria-hidden
+                className="h-full w-full object-cover"
+              />
+              {on && (
+                <span className="absolute top-2 right-2 grid size-6 place-items-center rounded-full bg-accent text-accent-foreground">
+                  <Check className="size-3.5" />
+                </span>
+              )}
+            </span>
+            <span className="mt-2 block text-[14px] font-medium">{l.label}</span>
+            <span className="block text-[12px] leading-snug text-muted-foreground">
+              {l.note}
+              {"photos" in l && l.photos ? " · photos only" : ""}
+            </span>
           </button>
-        )}
-      </div>
-
-      {mode === "random" ? (
-        <p className="mt-3 text-[13px] text-muted-foreground">A fresh mix every Short. The hiding effect, reveal and look never repeat your last 3.</p>
-      ) : (
-        <div className="mt-4 space-y-4">
-          {KEYS.map((k) => {
-            const { label, options } = STYLE_OPTIONS[k];
-            const cur = value[k] ?? "random";
-            const disabled = k === "dropFx" && value.mechanic && value.mechanic !== "glass" ? "shatter" : null;
-            return (
-              <div key={k}>
-                <span className="mb-1.5 block text-[11px] font-extrabold tracking-[0.12em] text-muted-foreground uppercase">{label}</span>
-                <div className="flex flex-wrap gap-1.5">
-                  {[["random", "Random"] as const, ...Object.entries(options)].map(([v, text]) => (
-                    <button
-                      key={v}
-                      type="button"
-                      disabled={v === disabled}
-                      aria-pressed={cur === v}
-                      onClick={() => onChange({ ...value, [k]: v })}
-                      className={cn(
-                        "flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] font-bold transition-colors disabled:opacity-30",
-                        cur === v ? "border-accent bg-accent text-accent-foreground" : "border-border bg-background/60 text-muted-foreground hover:text-foreground",
-                      )}
-                    >
-                      {k === "accent" && v !== "random" && <span className="size-3 rounded-full ring-1 ring-black/30" style={{ background: v }} />}
-                      {text}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+        );
+      })}
     </div>
+    {/* the previews are made from a CC BY-SA photo, which requires this credit */}
+    <p className="mt-4 text-[11px] text-muted-foreground">Previews: photo by Alexander-93, CC BY-SA 4.0, via Wikimedia Commons</p>
+    </>
   );
 }
