@@ -25,7 +25,9 @@ VID = {".mp4", ".mov", ".mkv", ".webm"}
 SONGS = {".mp3", ".wav", ".m4a"}
 
 HOOKS = {
-    "car": [("GUESS THE", "CAR", "👀"), ("NAME THIS", "CAR", "🤔"), ("ONLY CAR FANS", "GET THIS", "😳"), ("WHICH CAR", "IS THIS?", "🔍")],
+    # bold, readable at a glance: Studio showed 70% swiping in the first second
+    "car": [("99% GET", "THIS WRONG", "😳"), ("ONLY REAL FANS", "KNOW THIS", "🧠"), ("NAME IT IN", "3 SECONDS", "⏱️"),
+            ("BET YOU CAN'T", "NAME THIS", "😏"), ("GUESS THE", "CAR", "👀")],
     "plane": [("GUESS THE", "PLANE", "✈️"), ("NAME THIS", "PLANE", "🤔"), ("ONLY PILOTS", "GET THIS", "😳"), ("WHICH PLANE", "IS THIS?", "🔍")],
 }
 
@@ -78,7 +80,11 @@ def pick_style(override=None, has_sil=False):
     Silhouette needs a cut-out car, so it's only an option when a photo was turned into shots."""
     hist = json.loads(HISTORY.read_text()) if HISTORY.exists() else []
     style = {}
-    options = {**OPTIONS, "mechanic": OPTIONS["mechanic"] + ["silhouette"] * has_sil}
+    # "Surprise me" only opens with a crisp first frame (sharp close-up or glowing silhouette) and hook text that is
+    # fully readable at frame 0. Pixel/blur/spotlight/tiles and typewriter/word-by-word hooks looked like a broken
+    # video in the feed (70% swiped in the first second); they stay available when picked in the web app.
+    options = {**OPTIONS, "mechanic": ["zoom"] + ["silhouette"] * has_sil, "hook": ["pop", "glitch", "marker"],
+               "look": [k for k in GRADES if k != "mono2color"]}
     for key, opts in options.items():
         recent = {h.get(key) for h in hist[-3:]} if key in ("mechanic", "reveal", "look") else set()
         style[key] = random.choice([o for o in opts if o not in recent] or opts)
@@ -86,7 +92,7 @@ def pick_style(override=None, has_sil=False):
         style["dropFx"] = "shatter"
     style["ramp"] = random.random() < 0.5
     style["bars"] = random.random() < 0.3
-    style["choices"] = random.random() < 0.4  # A/B/C on ~40% of reels
+    style["choices"] = random.random() < 0.7  # A/B/C gives viewers something to do from second one
     style.update({k: v for k, v in (override or {}).items() if v not in (None, "", "random")})
     if style["mechanic"] == "silhouette" and not has_sil:  # picked in the web app but only videos uploaded
         style["mechanic"] = "zoom"
@@ -148,7 +154,7 @@ def build_for(length):
 
 def song_plan(song, length):
     build = build_for(length)
-    cache = song.with_suffix(f".plan{length:g}-{build:g}.json")
+    cache = song.with_suffix(f".plan{length:g}-{build:g}-v2.json")  # v2: start snapped to a downbeat
     if cache.exists():
         return json.loads(cache.read_text())
     plan = analyze(song, length, build)

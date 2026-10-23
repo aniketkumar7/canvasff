@@ -58,6 +58,10 @@ def analyze(path, length=17.0, build=9.0):
         drop = None
     else:
         start, drop = best - build, best
+        # open ON a beat: snap the start to the nearest downbeat (bar's first beat) within ~1s, so frame 1 hits
+        near = [d for d in down_t if abs(d - start) <= 1.2 and d < drop - 2.5 and d >= 0]
+        if near:
+            start = float(min(near, key=lambda d: abs(d - start)))
 
     end = start + length
     strength = onset[beats] / onset[beats].max()

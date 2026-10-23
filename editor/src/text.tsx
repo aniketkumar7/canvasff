@@ -103,9 +103,9 @@ const HookLine = ({ style, text, start, size, color }: { style: Style; text: str
 
 export const Hook = ({ style, hook, emoji }: { style: Style; hook: [string, string]; emoji: string }) => (
   <>
-    <HookLine style={style} text={hook[0]} start={-0.2} size={fitSize(style, hook[0], 92)} color="white" />
+    <HookLine style={style} text={hook[0]} start={-0.2} size={fitSize(style, hook[0], 106)} color="white" />
     <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 18, marginTop: 6 }}>
-      <HookLine style={style} text={hook[1]} start={style.hook === "type" ? 0.4 : -0.15} size={fitSize(style, hook[1], 140)} color={style.accent} />
+      <HookLine style={style} text={hook[1]} start={style.hook === "type" ? 0.4 : -0.15} size={fitSize(style, hook[1], 160)} color={style.accent} />
       <PopIn start={0.15} style={{ fontSize: 120 }}>{emoji}</PopIn>
     </div>
   </>

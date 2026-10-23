@@ -230,7 +230,8 @@ export const Quiz = (props: QuizProps) => {
     style.mechanic === "zoom"
       ? interpolate(t, [0, drop - 1], [2.4, 1.0], { extrapolateRight: "clamp", easing: Easing.inOut(Easing.sin) })
       : interpolate(t, [0, drop], [1.0, 1.12], clampX);
-  let punch = after ? decay(t, [drop], 0.18, 6) : decay(t, downbeats, 0.06, 7);
+  // a hit at frame 1 (with the impact sound) so the first second has energy, then beat punches
+  let punch = after ? decay(t, [drop], 0.18, 6) : decay(t, downbeats, 0.06, 7) + decay(t, [0], 0.22, 7);
   let shakeAmp = decay(t, [drop], 38, 7) + decay(t, strong, 14, 12) + (after ? decay(t, downbeats, 8, 12) : 0);
   let turn = 0;
   let whipX = 0;
@@ -371,6 +372,12 @@ export const Quiz = (props: QuizProps) => {
       )}
 
       {choices && choices.length > 1 && <Choices style={style} choices={choices} answer={answer} drop={drop} />}
+
+      {/* original synthesized impact (editor/public/sfx): on frame 1 for an instant hit, and on the reveal */}
+      <Audio src={staticFile("sfx/impact.wav")} volume={0.75} />
+      <Sequence from={Math.round(drop * fps)} layout="none">
+        <Audio src={staticFile("sfx/impact.wav")} volume={0.6} />
+      </Sequence>
 
       {music && (
         <Audio
