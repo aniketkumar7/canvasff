@@ -284,11 +284,20 @@ def make(files, name, focus, kind, length, song, out, song_title=None, credit=""
         props["choices"] = choices_for(name, kind)
     (JOB / "props.json").write_text(json.dumps(props, ensure_ascii=False), encoding="utf-8")
 
-    r = subprocess.run(f'npx remotion render src/index.ts Quiz "{out}" --props=public/job/props.json --log=error '
-                       + os.environ.get("RENDER_FLAGS", ""),  # worker: --concurrency=$(nproc)
+    base = f'npx remotion render src/index.ts Quiz "{out}" --props=public/job/props.json --log=error '
+    r = subprocess.run(base + os.environ.get("RENDER_FLAGS", ""),  # worker: --concurrency=$(nproc)
                        cwd=EDITOR, shell=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode:
-        raise SystemExit(f"render failed for {name}:\n{(r.stderr or r.stdout)[-2000:]}")
+        # Remotion's frame decoder (compositor) has crashed now and then under memory pressure; the same job then
+        # renders fine. Retry once, gentler: one thread and a small video-frame cache.
+        first = (r.stderr or r.stdout)
+        print(f"  render crashed, retrying with 1 thread. Start of error:\n{first[:1500]}", flush=True)
+        r = subprocess.run(base + "--concurrency=1 --offthreadvideo-cache-size-in-bytes=268435456",
+                           cwd=EDITOR, shell=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if r.returncode:
+        err = r.stderr or r.stdout
+        # keep the start (the real panic message) and the end (the stack)
+        raise SystemExit(f"render failed for {name}:\n{err[:1500]}\n...\n{err[-800:]}")
     # loudness: -14 LUFS (YouTube's playback level), peaks under -1 dB, so every Short plays full and even;
     # the video stream is copied untouched
     tmp = out.with_name(out.stem + ".loud.mp4")
