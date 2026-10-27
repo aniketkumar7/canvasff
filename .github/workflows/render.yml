@@ -57,13 +57,15 @@ jobs:
           path: editor/node_modules
           key: nm-${{ hashFiles('editor/package-lock.json') }}
 
-      # photo shot models (rembg cut-out + Depth Anything V2 Small), ~270MB: download once, not per render
+      # photo shot models (rembg BiRefNet-lite cut-out + Depth Anything V2 Small): download once, not per render.
+      # rembg 2.x keeps its models in ~/.rembg; ~/.u2net was the older location
       - uses: actions/cache@v4
         with:
           path: |
+            ~/.rembg
             ~/.u2net
             ~/.cache/huggingface
-          key: photo-models-v1
+          key: photo-models-v2
 
       - name: Install deps
         run: |
