@@ -112,13 +112,22 @@ def detail(rgb, mask, out, point, seconds=1.6):
 
 # ---------- generated backgrounds ----------
 
-BACKGROUNDS = ("bokeh", "tunnel", "studio")
+# "photo" = the photo's own surroundings, heavily blurred and darkened (cinematic, keeps the eye on the car);
+# "studio" = a clean dark gradient. The old neon tunnel / bokeh looks read as dated.
+BACKGROUNDS = ("photo", "studio")
 
 
-def background(kind: str, seed: int):
+def background(kind: str, seed: int, img: np.ndarray | None = None):
     """Returns f(k) -> 1920x1080x3 float32 frame for progress k in 0..1 (animated)."""
     rng = np.random.default_rng(seed)
     yy = np.linspace(0, 1, OH, dtype=np.float32)[:, None, None]
+    if kind == "photo" and img is not None:
+        h, w = img.shape[:2]
+        s = max(OW / w, OH / h)
+        big = cv2.resize(img, (int(w * s) + 1, int(h * s) + 1), interpolation=cv2.INTER_AREA)
+        y, x = (big.shape[0] - OH) // 2, (big.shape[1] - OW) // 2
+        soft = cv2.GaussianBlur(big[y:y + OH, x:x + OW].astype(np.float32), (0, 0), 28) * 0.42
+        return lambda k: soft
     if kind == "studio":
         xx = np.linspace(-1, 1, OW, dtype=np.float32)[None, :, None]
         spot = np.exp(-(xx**2 * 1.6 + (yy - 0.45) ** 2 * 6))
@@ -203,13 +212,12 @@ def sweep(car, a, k):
 
 def hero(rgb, mask, out, bg_kind, seed, seconds=3.0, silhouette=False):
     car, a = car_layer(rgb, mask, width_frac=0.94)  # whole car visible: the silhouette needs its full outline
-    bg = background(bg_kind, seed)
+    bg = background(bg_kind, seed, rgb)
     bottom = OH * 0.64
     cy = bottom - a.shape[0] / 2
-    if silhouette:  # black shape + bright glowing rim, same framing as the hero shot
-        edge = np.clip(cv2.dilate(a, np.ones((15, 15), np.uint8)) - cv2.erode(a, np.ones((5, 5), np.uint8)), 0, 1)
-        rim = np.clip(cv2.GaussianBlur(edge, (0, 0), 5) * 2.2, 0, 1)
-        car = np.full_like(car, 8) * (1 - rim[..., None]) + rim[..., None] * np.float32([170, 240, 255])
+    if silhouette:  # near-black shape with a thin clean light edge (no glow), same framing as the hero shot
+        rim = np.clip(cv2.dilate(a, np.ones((5, 5), np.uint8)) - a, 0, 1)
+        car = np.full_like(car, 10) * (1 - rim[..., None]) + rim[..., None] * np.float32([225, 228, 235])
         a = np.clip(a + rim, 0, 1)
 
     def frame(i, k):
@@ -266,7 +274,7 @@ def assemble(rgb, mask, out, beats, drop, bg_kind, seed):
     """The car in ~40 scattered pieces that fly into place on the beats; the last piece lands on the drop.
     Sharp and colourful from frame 1 (curiosity without blur), then the finished car holds a moment."""
     car, a = car_layer(rgb, mask, width_frac=0.94)
-    bg = background(bg_kind, seed)
+    bg = background(bg_kind, seed, rgb)
     h, w = a.shape
     x0, y0 = int(OW / 2 - w / 2), int(OH * 0.62 - h)  # where the finished car sits in the frame
     rng = np.random.default_rng(seed + 7)
@@ -324,9 +332,50 @@ def assemble(rgb, mask, out, beats, drop, bg_kind, seed):
     return run(out, int((drop + 0.3) * FPS), frame)
 
 
-def photo_video(photo: pathlib.Path, outdir: pathlib.Path, tag: str, beats=None, drop=None) -> list[tuple[pathlib.Path, dict]]:
+def sketch(rgb, mask, out, beats, drop, bg_kind, seed):
+    """Chalk-style line drawing of the car that draws itself in, a bit more on every beat, complete by the drop
+    (the editor then cuts to the full-colour shots). Inspired by whiteboard animation; no hands, no model weights."""
+    car, a = car_layer(rgb, mask, width_frac=0.94)
+    h, w = a.shape
+    x0, y0 = int(OW / 2 - w / 2), int(OH * 0.62 - h)
+    # pencil lines: difference of Gaussians on a smoothed grey image picks up real contours with fewer specks than
+    # Canny; the cut-out's outline is added so the silhouette always reads
+    gray = cv2.bilateralFilter(cv2.cvtColor(car.astype(np.uint8), cv2.COLOR_RGB2GRAY), 9, 50, 9).astype(np.float32)
+    dog = cv2.GaussianBlur(gray, (0, 0), 1.0) - cv2.GaussianBlur(gray, (0, 0), 2.2)
+    strokes = np.clip(-dog / 6.0, 0, 1) * (a > 0.3)
+    outline = cv2.morphologyEx((a > 0.5).astype(np.uint8), cv2.MORPH_GRADIENT, np.ones((3, 3), np.uint8)).astype(np.float32)
+    lines = np.clip(np.maximum(strokes, outline * 0.9), 0, 1)
+    # draw order: roughly left to right, with a smooth wobble so it looks hand-drawn, not like a wipe
+    rng = np.random.default_rng(seed)
+    wobble = cv2.GaussianBlur(rng.random((h, w)).astype(np.float32), (0, 0), 25)
+    wobble = (wobble - wobble.min()) / max(float(np.ptp(wobble)), 1e-6)
+    order = np.tile(np.linspace(0, 1, w, dtype=np.float32), (h, 1)) * 0.75 + wobble * 0.25
+    hits = [b for b in beats if 0.2 < b < drop] or [drop]
+    # light neutral paper with a faint grain; graphite strokes
+    paper = np.full((OH, OW, 3), 236, np.float32) + (rng.random((OH, OW, 1)).astype(np.float32) - 0.5) * 6
+    graphite = np.float32([34, 34, 38])
+    wash_from = drop - 0.6  # the real colours wash in over the drawing just before the reveal
+
+    def frame(i, k):
+        t = i / FPS
+        n = sum(b <= t for b in hits)  # beats passed
+        within = 0.0 if n >= len(hits) else min(max((t - (hits[n - 1] if n else 0)) / 0.25, 0), 1)
+        p = min(1.0, (n + within) / len(hits))  # each beat draws the next slice, eased in over a quarter second
+        shown = (lines * (order <= p * 1.02))[..., None]
+        f = paper.copy()
+        roi = f[y0:y0 + h, x0:x0 + w]
+        wash = min(max((t - wash_from) / 0.6, 0.0), 1.0)
+        if wash > 0:  # colour fills the drawn shape like a quick watercolour
+            ca = (a * wash)[..., None]
+            roi = roi * (1 - ca) + car * ca
+        f[y0:y0 + h, x0:x0 + w] = roi * (1 - shown * 0.9) + graphite * shown * 0.9
+        return f
+    return run(out, int((drop + 0.3) * FPS), frame)
+
+
+def photo_video(photo: pathlib.Path, outdir: pathlib.Path, tag: str, beats=None, drop=None, timed=None) -> list[tuple[pathlib.Path, dict]]:
     """All vertical shots for one photo, as (mp4, extra clip fields). The hero shot carries its silhouette twin,
-    and (when beats + drop are given) its assemble twin, timed to the song."""
+    and (when `timed` is "asm" or "skc" with beats + drop) an assemble or sketch twin timed to the song."""
     rgb, mask, depth = load_full(photo)
     seed = sum(map(ord, tag + photo.name))
     bg_kind = BACKGROUNDS[seed % len(BACKGROUNDS)]
@@ -334,8 +383,9 @@ def photo_video(photo: pathlib.Path, outdir: pathlib.Path, tag: str, beats=None,
     shots = [(pan(rgb, mask, depth, p("pan")), {})]
     shots += [(detail(rgb, mask, p(f"detail{j}"), pt), {}) for j, pt in enumerate(detail_points(rgb, mask))]
     extra = {"sil": hero(rgb, mask, p("sil"), bg_kind, seed, silhouette=True)}
-    if drop:
-        extra["asm"] = assemble(rgb, mask, p("asm"), beats or [], drop, bg_kind, seed)
+    if drop and timed in ("asm", "skc"):
+        make = assemble if timed == "asm" else sketch
+        extra[timed] = make(rgb, mask, p(timed), beats or [], drop, bg_kind, seed)
     shots.append((hero(rgb, mask, p("hero"), bg_kind, seed), extra))
     shots.append((drive(rgb, mask, p("drive"), direction=1 if seed % 2 else -1), {}))
     return shots

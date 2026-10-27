@@ -26,8 +26,9 @@ SONGS = {".mp3", ".wav", ".m4a"}
 
 HOOKS = {
     # bold, readable at a glance: Studio showed 70% swiping in the first second
-    "car": [("99% GET", "THIS WRONG", "😳"), ("ONLY REAL FANS", "KNOW THIS", "🧠"), ("NAME IT IN", "3 SECONDS", "⏱️"),
-            ("BET YOU CAN'T", "NAME THIS", "😏"), ("GUESS THE", "CAR", "👀")],
+    # no emoji on screen: clean type reads as current, emoji stickers read as dated
+    "car": [("99% GET", "THIS WRONG", ""), ("ONLY REAL FANS", "KNOW THIS", ""), ("NAME IT IN", "3 SECONDS", ""),
+            ("BET YOU CAN'T", "NAME THIS", ""), ("GUESS THE", "CAR", "")],
     "plane": [("GUESS THE", "PLANE", "✈️"), ("NAME THIS", "PLANE", "🤔"), ("ONLY PILOTS", "GET THIS", "😳"), ("WHICH PLANE", "IS THIS?", "🔍")],
 }
 
@@ -54,7 +55,7 @@ OPTIONS = {
     "cut": ["punch", "whip", "spin", "zoom", "flash"],
     "look": list(GRADES),
     "hook": ["pop", "words", "type", "glitch", "marker"],
-    "font": ["montserrat", "anton", "bebas"],
+    "font": ["inter", "montserrat", "anton", "bebas"],
     "accent": ["#FFD400", "#00E5FF", "#FF2D55", "#B6FF00", "#FF7A00"],
 }
 DECOYS = {  # same-brand models make the best decoys
@@ -84,8 +85,10 @@ def pick_style(override=None, has_photos=False):
     # fully readable at frame 0. Pixel/blur/spotlight/tiles and typewriter/word-by-word hooks looked like a broken
     # video in the feed (70% swiped in the first second); they stay available when picked in the web app.
     # Assemble (pieces fly together on the beats) is weighted up: curiosity from frame 1 with nothing blurred.
-    options = {**OPTIONS, "mechanic": ["zoom"] + ["silhouette", "assemble", "assemble"] * has_photos, "hook": ["pop", "glitch", "marker"],
-               "look": [k for k in GRADES if k != "mono2color"]}
+    # modern defaults: clean type (Inter), no glitch/RGB/spin, no neon or B&W grade; the rest stays pickable
+    options = {**OPTIONS, "mechanic": ["zoom"] + ["silhouette", "assemble", "assemble", "sketch"] * has_photos,
+               "hook": ["pop", "marker"], "font": ["inter"], "dropFx": ["flash", "zoomThrough", "whip"],
+               "cut": ["punch", "zoom", "whip"], "look": [k for k in GRADES if k not in ("mono2color", "neon")]}
     for key, opts in options.items():
         recent = {h.get(key) for h in hist[-3:]} if key in ("mechanic", "reveal", "look") else set()
         style[key] = random.choice([o for o in opts if o not in recent] or opts)
@@ -95,7 +98,7 @@ def pick_style(override=None, has_photos=False):
     style["bars"] = random.random() < 0.3
     style["choices"] = random.random() < 0.7  # A/B/C gives viewers something to do from second one
     style.update({k: v for k, v in (override or {}).items() if v not in (None, "", "random")})
-    if style["mechanic"] in ("silhouette", "assemble") and not has_photos:  # picked in the web app, but only videos uploaded
+    if style["mechanic"] in ("silhouette", "assemble", "sketch") and not has_photos:  # picked in the web app, but only videos uploaded
         style["mechanic"] = "zoom"
     try:
         HISTORY.parent.mkdir(exist_ok=True)
@@ -182,8 +185,8 @@ DESC_ASK = ["Comment your guess BEFORE the reveal 👇", "Drop your answer below
             "Got it right? Comment 'easy'. Wrong? Comment 'next' 👇", "Write your guess, then check the reveal 👇"]
 DESC_NEXT = ["What {k} should I do next? Tell me below", "Suggest the next {k} in the comments, I read them all",
              "Want a harder one? Comment a {k} to stump everyone", "Follow for a new {k} quiz every day"]
-CTAS = ["GOT IT? COMMENT 👇", "HOW FAST WERE YOU? ⏱️", "1 TRY ONLY 👇", "EASY OR HARD? 🤔", "SCORE IN THE COMMENTS 👇",
-        "NEXT ONE IS HARDER 😈", "TAG A CAR FAN 👇"]
+CTAS = ["Got it? Comment below", "How fast were you?", "One try only", "Easy or hard?", "Score in the comments",
+        "Next one is harder", "Tag a car fan"]  # sentence case, no emoji: matches the clean on-screen type
 PINS = ["Drop your guess 👇 1 try only!", "First guess counts, no editing 😤", "How many seconds did it take you? ⏱️",
         "Too easy or too hard? 🤔", "Next {k}? Best suggestion gets picked 👇"]
 TAG_POOL = {
@@ -244,12 +247,13 @@ def make(files, name, focus, kind, length, song, out, song_title=None, credit=""
     for j, f in enumerate(photos):
         try:
             from photo_scenes import photo_video  # heavy deps (onnx models) only when there are photos
-            timed = style["mechanic"] == "assemble" and j == 0  # one assemble clip is enough (~20s to make)
-            items += photo_video(f, JOB, f"shot{j}", plan["beats"] if timed else None, plan["drop"] if timed else None)
+            # one beat-timed build-up clip (assemble / sketch) from the first photo is enough
+            timed = {"assemble": "asm", "sketch": "skc"}.get(style["mechanic"]) if j == 0 else None
+            items += photo_video(f, JOB, f"shot{j}", plan["beats"], plan["drop"], timed)
         except Exception as e:  # fall back to the plain photo; say why in the log
             print(f"  photo shots skipped for {f.name}: {e}", flush=True)
             items.append((f, {}))
-    needs = {"silhouette": "sil", "assemble": "asm"}.get(style["mechanic"])
+    needs = {"silhouette": "sil", "assemble": "asm", "sketch": "skc"}.get(style["mechanic"])
     if needs and not any(needs in extra for _, extra in items):  # photo shots failed: open on the zoom instead
         style["mechanic"] = "zoom"
     print("  style:", ", ".join(f"{k}={v}" for k, v in style.items()), flush=True)
@@ -264,7 +268,7 @@ def make(files, name, focus, kind, length, song, out, song_title=None, credit=""
         need = {"glass": ["blur"], "pixel": ["pix1", "pix2"]}.get(style["mechanic"], [])
         for k, p in prep_hidden(JOB / f"clip{i}{ext}", need).items():
             clip[k] = f"job/{p.name}"
-        for k in ("sil", "asm"):  # silhouette / assemble twins of the hero shot, graded the same way
+        for k in ("sil", "asm", "skc"):  # silhouette / assemble / sketch twins of the hero shot, graded the same way
             if k in extra:
                 prep(extra[k], JOB / f"clip{i}.{k}.mp4", JOB / f"clip{i}.{k}bg.mp4", GRADES[style["look"]])
                 clip[k] = f"job/clip{i}.{k}.mp4"
@@ -285,6 +289,12 @@ def make(files, name, focus, kind, length, song, out, song_title=None, credit=""
                        cwd=EDITOR, shell=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode:
         raise SystemExit(f"render failed for {name}:\n{(r.stderr or r.stdout)[-2000:]}")
+    # loudness: -14 LUFS (YouTube's playback level), peaks under -1 dB, so every Short plays full and even;
+    # the video stream is copied untouched
+    tmp = out.with_name(out.stem + ".loud.mp4")
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(out), "-c:v", "copy", "-af", "loudnorm=I=-14:TP=-1:LRA=11",
+                    "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart", str(tmp)], check=True)
+    tmp.replace(out)
 
     meta = upload_text(name, kind, song_title or song.stem, credit, style)
     out.with_suffix(".json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")

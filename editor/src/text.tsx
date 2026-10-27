@@ -2,16 +2,15 @@ import type { CSSProperties, ReactNode } from "react";
 import { interpolate, random, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import { fitSize, fontOf, type Style } from "./style";
 
+/** Clean modern type: no outline, no glow; a soft shadow only so it stays readable over any shot. */
 export const textBase = (style: Style, size: number, color: string): CSSProperties => ({
   fontFamily: fontOf(style),
-  fontWeight: 900,
+  fontWeight: 800,
   fontSize: size,
   color,
-  lineHeight: 1,
-  WebkitTextStroke: `${Math.round(size / 9)}px black`,
-  paintOrder: "stroke fill",
-  textShadow: "0 8px 24px rgba(0,0,0,0.6)",
-  letterSpacing: style.font === "montserrat" ? -1 : 1,
+  lineHeight: 1.05,
+  textShadow: "0 2px 14px rgba(0,0,0,0.55)",
+  letterSpacing: style.font === "inter" ? "-0.02em" : "0.01em",
 });
 
 const row: CSSProperties = { display: "flex", justifyContent: "center", whiteSpace: "pre" };
@@ -32,7 +31,7 @@ export const Letters = ({ style, text, start, size, color, stagger = 1.5, slam =
           : { transform: `translateY(${(1 - s) * 60}px) scale(${s})`, opacity: Math.min(1, s * 2) };
         const base = textBase(style, size, color);
         return (
-          <span key={i} style={{ ...base, ...anim, display: "inline-block", textShadow: glow ? `0 0 40px ${color}AA, ${base.textShadow}` : base.textShadow }}>
+          <span key={i} style={{ ...base, ...anim, display: "inline-block" }}>
             {ch}
           </span>
         );
@@ -101,12 +100,13 @@ const HookLine = ({ style, text, start, size, color }: { style: Style; text: str
   return <Letters style={style} text={text} start={start} size={size} color={color} stagger={0} />;
 };
 
-export const Hook = ({ style, hook, emoji }: { style: Style; hook: [string, string]; emoji: string }) => (
+/** `onLight`: dark ink colours for light backgrounds (the Sketch look's paper), where white/yellow vanish. */
+export const Hook = ({ style, hook, emoji, onLight = false }: { style: Style; hook: [string, string]; emoji: string; onLight?: boolean }) => (
   <>
-    <HookLine style={style} text={hook[0]} start={-0.2} size={fitSize(style, hook[0], 106)} color="white" />
+    <HookLine style={onLight ? { ...style, accent: "#1d1d1f" } : style} text={hook[0]} start={-0.2} size={fitSize(style, hook[0], 106)} color={onLight ? "#3a3a3c" : "white"} />
     <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 18, marginTop: 6 }}>
-      <HookLine style={style} text={hook[1]} start={style.hook === "type" ? 0.4 : -0.15} size={fitSize(style, hook[1], 160)} color={style.accent} />
-      <PopIn start={0.15} style={{ fontSize: 120 }}>{emoji}</PopIn>
+      <HookLine style={onLight ? { ...style, accent: "#1d1d1f" } : style} text={hook[1]} start={style.hook === "type" ? 0.4 : -0.15} size={fitSize(style, hook[1], 160)} color={onLight ? "#1d1d1f" : style.accent} />
+      {emoji && <PopIn start={0.15} style={{ fontSize: 120 }}>{emoji}</PopIn>}
     </div>
   </>
 );
@@ -121,7 +121,7 @@ export const Reveal = ({ style, text, start }: { style: Style; text: string; sta
   const size = fitSize(style, text, 170);
   const color = style.accent;
   const base = textBase(style, size, color);
-  const glow = `0 0 40px ${color}AA, ${base.textShadow}`;
+  const glow = base.textShadow; // no glow: just the soft readability shadow
   const f = frame - start * fps;
 
   if (style.reveal === "scramble") {

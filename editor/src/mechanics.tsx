@@ -151,7 +151,7 @@ export const Choices = ({ style, choices, answer, drop }: { style: Style; choice
   const out = interpolate(t, [drop + 1.2, drop + 1.5], [1, 0], clamp); // gone before the end prompt pops in
   if (out <= 0) return null;
   return (
-    <div style={{ position: "absolute", bottom: 300, width: "100%", display: "flex", flexDirection: "column", alignItems: "center", gap: 22, opacity: out }}>
+    <div style={{ position: "absolute", bottom: 440, width: "100%", display: "flex", flexDirection: "column", alignItems: "center", gap: 14, opacity: out }}>
       {choices.map((c, i) => {
         const s = spring({ frame: frame - (0.5 + i * 0.15) * fps, fps, config: { damping: 12, stiffness: 180 } });
         const right = c === answer;
@@ -162,23 +162,23 @@ export const Choices = ({ style, choices, answer, drop }: { style: Style; choice
           <div
             key={c}
             style={{
-              ...textBase(style, 52, done && right ? "black" : "white"),
-              WebkitTextStroke: "0px",
+              // minimal: translucent dark pill, thin border, calm right/wrong states (no glow, no fat outlines)
+              ...textBase(style, 40, "white"),
+              fontWeight: 600,
+              textShadow: "none",
               display: "flex",
               alignItems: "center",
-              gap: 20,
-              width: 760,
-              padding: "20px 28px",
-              borderRadius: 999,
-              background: done ? (right ? "#22C55E" : "rgba(40,0,0,0.75)") : "rgba(0,0,0,0.6)",
-              border: `4px solid ${done ? (right ? "#22C55E" : "#FF2D55") : "rgba(255,255,255,0.35)"}`,
-              boxShadow: done && right ? "0 0 50px #22C55E" : "0 10px 30px rgba(0,0,0,0.5)",
-              transform: `translateX(${(1 - s) * (i % 2 ? 900 : -900) + shake}px) scale(${done && right ? 1 + hit * 0.08 : 1})`,
-              opacity: done && !right ? 0.45 : 1,
-              textDecoration: done && !right ? "line-through" : undefined,
+              gap: 18,
+              width: 680,
+              padding: "16px 22px",
+              borderRadius: 18,
+              background: done ? (right ? "rgba(34,197,94,0.9)" : "rgba(0,0,0,0.45)") : "rgba(0,0,0,0.5)",
+              border: `2px solid ${done ? (right ? "rgba(34,197,94,1)" : "rgba(255,255,255,0.12)") : "rgba(255,255,255,0.18)"}`,
+              transform: `translateX(${(1 - s) * (i % 2 ? 900 : -900) + shake}px) scale(${done && right ? 1 + hit * 0.04 : 1})`,
+              opacity: done && !right ? 0.4 : 1,
             }}
           >
-            <span style={{ width: 64, height: 64, borderRadius: 32, background: style.accent, color: "black", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <span style={{ width: 48, height: 48, borderRadius: 12, background: "rgba(255,255,255,0.14)", color: "white", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 30 }}>
               {"ABC"[i]}
             </span>
             {c.toUpperCase()}
@@ -209,9 +209,6 @@ export const LookOverlays = ({ style, downbeats }: { style: Style; downbeats: nu
             background: `radial-gradient(circle at ${20 + Math.sin(t * 0.6) * 25}% ${15 + Math.cos(t * 0.4) * 10}%, #ff8a3d 0%, transparent 45%), radial-gradient(circle at ${85 + Math.cos(t * 0.5) * 10}% ${80 + Math.sin(t * 0.7) * 10}%, #ff3d8a 0%, transparent 40%)`,
           }}
         />
-      )}
-      {style.look === "neon" && (
-        <AbsoluteFill style={{ mixBlendMode: "screen", opacity: 0.18 + pulse * 0.1, background: "linear-gradient(180deg, #7b2dff 0%, transparent 35%, transparent 65%, #00e5ff 100%)" }} />
       )}
       {grain && (
         <AbsoluteFill

@@ -16,7 +16,8 @@ def car_mask(rgb: np.ndarray) -> np.ndarray:
     global _seg
     from rembg import new_session, remove
 
-    _seg = _seg or new_session("isnet-general-use")
+    # BiRefNet keeps thin parts (wings, mirrors, spokes) that isnet dropped; lite = workable on CPU
+    _seg = _seg or new_session("birefnet-general-lite")
     m = remove(rgb, session=_seg, only_mask=True)
     m = np.asarray(m, dtype=np.uint8)
     n, lab, stats, _ = cv2.connectedComponentsWithStats((m > 127).astype(np.uint8))
@@ -49,7 +50,8 @@ def trim_by_depth(m: np.ndarray, d: np.ndarray) -> np.ndarray:
     inside = d[m > 127]
     if inside.size == 0:
         return m
-    keep = (d >= np.percentile(inside, 60) * 0.72).astype(np.uint8)
+    # only cut what is far behind the car's near side; the old cut (60th pct * 0.72) ate the far end of 3/4 views
+    keep = (d >= np.percentile(inside, 90) * 0.4).astype(np.uint8)
     keep = cv2.morphologyEx(keep, cv2.MORPH_OPEN, np.ones((9, 9), np.uint8))  # cut thin bridges between blobs
     m = (m * keep).astype(np.uint8)
     n, lab, stats, _ = cv2.connectedComponentsWithStats((m > 127).astype(np.uint8))

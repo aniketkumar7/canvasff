@@ -7,6 +7,7 @@ import { cn } from "cn";
 export const LOOKS = [
   { id: "assemble", label: "Assemble", note: "Pieces fly together on the beat", photos: true },
   { id: "silhouette", label: "Silhouette", note: "Glowing outline, colour on the drop", photos: true },
+  { id: "sketch", label: "Sketch", note: "Chalk lines draw the car on the beat", photos: true },
   { id: "zoom", label: "Zoom out", note: "Starts on one detail, pulls back" },
   { id: "glass", label: "Frosted glass", note: "Cracks, then shatters on the drop" },
   { id: "pixel", label: "Pixelated", note: "Blocks clear up beat by beat" },

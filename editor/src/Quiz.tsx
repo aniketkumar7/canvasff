@@ -18,6 +18,9 @@ import { Hook, Letters, PopIn, Reveal, textBase } from "./text";
 import { Choices, Glass, LookOverlays, Spotlight, Tiles } from "./mechanics";
 
 const clampX = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
+/** riser.wav length (it peaks at its end = the drop) and whoosh.wav loudest moment; set when rendering them */
+const RISER_S = 1.6;
+const WHOOSH_APEX_S = 0.3;
 const FG_W = 1.3; // landscape clips: 130% width (crop sides) so the subject fills more of the frame
 
 export type Clip = {
@@ -34,6 +37,8 @@ export type Clip = {
   sil?: string;
   /** pieces-fly-together twin, timed to this song's beats; ends exactly on the drop (assemble mechanic) */
   asm?: string;
+  /** chalk line drawing that draws itself in on the beats; ends on the drop (sketch mechanic) */
+  skc?: string;
   kind: "video" | "image";
   width: number;
   height: number;
@@ -79,16 +84,18 @@ function buildSegments({ clips, plan }: QuizProps, style: Style): Segment[] {
   const guessCuts = downbeats.filter((t) => t > 0.8 && t < slowFrom - 0.6);
   const post = beats.filter((t) => t > drop + 0.2 && t < length - 0.3);
   const postCuts = post.filter((_, i) => i < 8 || i % 2 === 0); // every beat, then every 2nd
-  // assemble: the build-up is one uncut shot played from 0s, so every piece lands on its beat
-  const asmClip = style.mechanic === "assemble" ? clips.find((c) => c.asm) : undefined;
-  const bounds = asmClip ? [0, drop, ...postCuts, length] : [0, ...guessCuts, slowFrom, drop, ...postCuts, length];
+  // assemble / sketch: the build-up is one uncut shot played from 0s, so every piece / line lands on its beat
+  const timedKey = style.mechanic === "assemble" ? "asm" : style.mechanic === "sketch" ? "skc" : undefined;
+  const timedClip = timedKey ? clips.find((c) => c[timedKey]) : undefined;
+  const timedSrc = timedKey && timedClip ? timedClip[timedKey] : undefined;
+  const bounds = timedSrc ? [0, drop, ...postCuts, length] : [0, ...guessCuts, slowFrom, drop, ...postCuts, length];
   // silhouette: the whole guess phase stays on the hero shot's black-shape twin
   const silClips = clips.filter((c) => c.sil);
   const last = bounds.length - 2;
   return bounds.slice(0, -1).map((from, i) => {
     const to = bounds[i + 1];
-    if (asmClip?.asm && from < drop) {
-      return { from, to, clip: asmClip, src: asmClip.asm, rate: 1, offset: 0, i }; // real time: pieces land on the beats
+    if (timedClip && timedSrc && from < drop) {
+      return { from, to, clip: timedClip, src: timedSrc, rate: 1, offset: 0, i }; // real time: lands on the beats
     }
     const pool = style.mechanic === "silhouette" && from < drop && silClips.length ? silClips : clips;
     // loop: the final cut goes back to the opening clip, so the replay flows on from the end
@@ -239,13 +246,14 @@ export const Quiz = (props: QuizProps) => {
       : interpolate(t, [0, drop], [1.0, 1.12], clampX);
   // a hit at frame 1 (with the impact sound) so the first second has energy, then beat punches
   let punch = after ? decay(t, [drop], 0.18, 6) : decay(t, downbeats, 0.06, 7) + decay(t, [0], 0.22, 7);
-  let shakeAmp = decay(t, [drop], 38, 7) + decay(t, strong, 14, 12) + (after ? decay(t, downbeats, 8, 12) : 0);
+  // camera shake kept subtle: heavy shake reads as dated
+  let shakeAmp = decay(t, [drop], 12, 8) + decay(t, strong, 4, 12) + (after ? decay(t, downbeats, 2, 12) : 0);
   let turn = 0;
   let whipX = 0;
   let flash = 0;
 
   // the hit on the drop
-  if (style.dropFx === "flash" || style.dropFx === "shatter") flash += decay(t, [drop], 1, 10);
+  if (style.dropFx === "flash" || style.dropFx === "shatter") flash += decay(t, [drop], 0.45, 12); // a soft flash, not a white-out
   if (style.dropFx === "zoomThrough") punch += decay(t, [drop], 1.4, 9);
   if (style.dropFx === "whip" && after) whipX += width * 0.9 * Math.exp(-dt * 13);
   if (style.dropFx === "shatter") shakeAmp += decay(t, [drop], 20, 6);
@@ -274,7 +282,8 @@ export const Quiz = (props: QuizProps) => {
   const sx = (random(`sx${frame}`) - 0.5) * 2 * shakeAmp + whipX;
   const sy = (random(`sy${frame}`) - 0.5) * 2 * shakeAmp;
   const rot = (random(`r${frame}`) - 0.5) * shakeAmp * 0.06 + turn;
-  const split = glitch > 0.15 ? 0 : decay(t, [drop], 28, 6) + decay(t, strong, 10, 14);
+  // RGB split only as part of the (opt-in) glitch drop; on every other look it read as dated
+  const split = style.dropFx === "glitch" && glitch <= 0.15 ? decay(t, [drop], 18, 8) : 0;
   const blurX = Math.min(60, Math.abs(whipX) * 0.08); // directional motion blur while whipping
   flash = Math.min(1, flash);
 
@@ -325,28 +334,18 @@ export const Quiz = (props: QuizProps) => {
       <LookOverlays style={style} downbeats={downbeats} />
 
       {/* vignette + dim + flash */}
-      <AbsoluteFill style={{ background: "radial-gradient(ellipse at center, transparent 45%, rgba(0,0,0,0.65) 100%)" }} />
+      {/* vignette, except over the Sketch look's paper (it greys the page) */}
+      {!(style.mechanic === "sketch" && !after) && (
+        <AbsoluteFill style={{ background: "radial-gradient(ellipse at center, transparent 45%, rgba(0,0,0,0.65) 100%)" }} />
+      )}
       <AbsoluteFill style={{ background: "black", opacity: dim }} />
       <AbsoluteFill style={{ background: "white", opacity: flash }} />
 
-      {/* guess phase: progress bar + hook */}
+      {/* guess phase: just the hook, clear of the top bar YouTube draws; no progress bar, the car gets the screen */}
       {!after && (
-        <>
-          <div style={{ position: "absolute", top: 210, left: 160, width: 760, height: 16, borderRadius: 8, background: "rgba(255,255,255,0.25)" }}>
-            <div
-              style={{
-                width: `${Math.min(1, t / drop) * 100}%`,
-                height: "100%",
-                borderRadius: 8,
-                background: style.accent,
-                boxShadow: `0 0 ${12 + beatPulse * 30}px ${style.accent}`,
-              }}
-            />
-          </div>
-          <div style={{ position: "absolute", top: 270, width: "100%", opacity: hookExit, transform: `scale(${1 + beatPulse * 0.05 + (1 - hookExit) * 0.3})` }}>
-            <Hook style={style} hook={hook} emoji={emoji} />
-          </div>
-        </>
+        <div style={{ position: "absolute", top: 300, width: "100%", opacity: hookExit, transform: `scale(${1 + (1 - hookExit) * 0.15})` }}>
+          <Hook style={style} hook={hook} emoji={emoji} onLight={style.mechanic === "sketch"} />
+        </div>
       )}
 
       {/* reveal on the drop */}
@@ -354,25 +353,25 @@ export const Quiz = (props: QuizProps) => {
         <>
           <div style={{ position: "absolute", top: ansY - 150, width: "100%", transform: `scale(${ansScale})`, transformOrigin: "50% 150px" }}>
             <div style={{ opacity: 1 - moveUp }}>
-              <Letters style={style} text="IT'S A" start={drop} size={78} color="white" stagger={1} />
+              <Letters style={style} text="IT'S A" start={drop} size={52} color="rgba(255,255,255,0.85)" stagger={1} />
             </div>
             <div style={{ marginTop: 18, transform: `scale(${1 + beatPulse * 0.04})` }}>
               <Reveal style={style} text={answer.toUpperCase()} start={drop + 0.08} />
             </div>
           </div>
-          <PopIn start={drop + 1.8} style={{ position: "absolute", bottom: 360, width: "100%", display: "flex", justifyContent: "center" }}>
+          {/* end prompt: small and quiet, above the Shorts caption/buttons area */}
+          <PopIn start={drop + 1.8} style={{ position: "absolute", bottom: 440, width: "100%", display: "flex", justifyContent: "center" }}>
             <div
               style={{
-                ...textBase(style, 58, "black"),
-                WebkitTextStroke: "0px",
-                background: "white",
-                padding: "22px 44px",
+                ...textBase(style, 40, "white"),
+                fontWeight: 600,
+                textShadow: "none",
+                background: "rgba(0,0,0,0.5)",
+                padding: "16px 32px",
                 borderRadius: 999,
-                boxShadow: "0 12px 40px rgba(0,0,0,0.5)",
-                transform: `scale(${1 + beatPulse * 0.06})`,
               }}
             >
-              {props.cta ?? "GOT IT? COMMENT 👇"}
+              {props.cta ?? "Got it? Comment below"}
             </div>
           </PopIn>
         </>
@@ -380,11 +379,20 @@ export const Quiz = (props: QuizProps) => {
 
       {choices && choices.length > 1 && <Choices style={style} choices={choices} answer={answer} drop={drop} />}
 
-      {/* original synthesized impact (editor/public/sfx): on frame 1 for an instant hit, and on the reveal */}
-      <Audio src={staticFile("sfx/impact.wav")} volume={0.75} />
-      <Sequence from={Math.round(drop * fps)} layout="none">
-        <Audio src={staticFile("sfx/impact.wav")} volume={0.6} />
+      {/* sound design, all code-made (earshot forge bank, rendered once into editor/public/sfx):
+          a hit on frame 1, a riser that peaks into the drop, a big hit on the reveal, whooshes on the beat cuts */}
+      <Audio src={staticFile("sfx/open.wav")} volume={0.8} />
+      <Sequence from={Math.max(0, Math.round((drop - RISER_S) * fps))} layout="none">
+        <Audio src={staticFile("sfx/riser.wav")} volume={0.55} />
       </Sequence>
+      <Sequence from={Math.round(drop * fps)} layout="none">
+        <Audio src={staticFile("sfx/hit.wav")} volume={0.85} />
+      </Sequence>
+      {cuts.slice(0, 8).map((c) => (
+        <Sequence key={c} from={Math.max(0, Math.round((c - WHOOSH_APEX_S) * fps))} layout="none">
+          <Audio src={staticFile("sfx/whoosh.wav")} volume={0.35} />
+        </Sequence>
+      ))}
 
       {music && (
         <Audio
