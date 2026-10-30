@@ -385,6 +385,19 @@ export default function App() {
               ) : (
                 job && <StatusLine status={job.status} name={job.name} created={job.created || undefined} upload={upload} />
               )}
+              {busy && job?.status !== "uploading" && (
+                // stop waiting on this Short (it stays in Recent if it finishes later)
+                <button
+                  type="button"
+                  onClick={() => {
+                    store.set(CURRENT, null);
+                    leaveRender();
+                  }}
+                  className="mt-6 h-12 w-full rounded-xl border border-border text-[15px] font-medium text-muted-foreground transition-colors hover:bg-white/[0.05] hover:text-foreground"
+                >
+                  Cancel
+                </button>
+              )}
               {job?.status === "done" && job.upload && <UploadFields upload={job.upload} />}
               {(job?.status === "done" || error) && (
                 <div className="mt-6 flex flex-col gap-2.5">

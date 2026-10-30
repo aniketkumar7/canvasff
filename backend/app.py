@@ -23,7 +23,7 @@ MEDIA = {".jpg", ".jpeg", ".png", ".webp", ".mp4", ".mov", ".mkv", ".webm"}
 SONGS = {".mp3", ".wav", ".m4a"}
 MAX_FILE = 200 << 20  # per upload
 MAX_ACTIVE = 3        # queued + rendering at once (each costs GitHub Actions minutes)
-STALE = 40 * 60       # no word from the worker for this long -> error (run never started / died)
+STALE = 25 * 60       # no word from the worker for this long -> error (run never started / died); renders take 5-15 min
 KEEP = 6 * 3600       # delete jobs older than this (Render's free disk is small)
 
 app = FastAPI(title="CanvasFF")
