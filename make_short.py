@@ -253,6 +253,10 @@ def make(files, name, focus, kind, length, song, out, song_title=None, credit=""
         except Exception as e:  # fall back to the plain photo; say why in the log
             print(f"  photo shots skipped for {f.name}: {e}", flush=True)
             items.append((f, {}))
+    if any(f.suffix.lower() in IMG for f in files):
+        import photo_prep
+
+        photo_prep.unload()  # the cut-out model holds ~6 GB; free it before Remotion renders
     needs = {"silhouette": "sil", "assemble": "asm", "sketch": "skc"}.get(style["mechanic"])
     if needs and not any(needs in extra for _, extra in items):  # photo shots failed: open on the zoom instead
         style["mechanic"] = "zoom"

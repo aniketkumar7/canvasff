@@ -11,6 +11,15 @@ _seg = None
 _depth = None
 
 
+def unload() -> None:
+    """Free the models (BiRefNet alone peaks ~6 GB) before the Remotion render needs the memory."""
+    global _seg, _depth
+    _seg = _depth = None
+    import gc
+
+    gc.collect()
+
+
 def car_mask(rgb: np.ndarray) -> np.ndarray:
     """0-255 mask of the main subject; only the biggest blob is kept so parked cars behind drop out."""
     global _seg
