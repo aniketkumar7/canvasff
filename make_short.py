@@ -143,7 +143,7 @@ def prep_hidden(fg, kinds):
 def prep(src, fg, bg, grade=GRADES["clean"]):
     """Do the expensive per-frame work once with ffmpeg instead of in the browser on every frame:
     colour grade baked in, foreground capped at 2160px wide, background pre-blurred at 1/4 size."""
-    still = ["-frames:v", "1", "-q:v", "2"] if fg.suffix == ".jpg" else ["-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p",
+    still = ["-frames:v", "1", "-q:v", "2"] if fg.suffix == ".jpg" else ["-an", "-c:v", "libx264", "-preset", "fast", "-crf", "14", "-pix_fmt", "yuv420p",
                                                                    "-bf", "0", "-g", "30"]  # no B-frames: Remotion seeks reliably
     for out, vf in ((fg, f"scale='min(iw,2160)':-2,{grade}"),
                     (bg, f"scale=270:480:force_original_aspect_ratio=increase,crop=270:480,{grade},"
@@ -272,6 +272,8 @@ def make(files, name, focus, kind, length, song, out, song_title=None, credit=""
         except OSError as e:
             print(f"  engine sound search failed: {e}", flush=True)
     engine_credit = next((f.read_text(encoding="utf-8").strip() for f in files if f.name == "engine.credit.txt"), "")
+    # photo credits saved next to downloaded photos (Wikimedia needs them in the description)
+    photo_credit = next((f.read_text(encoding="utf-8").strip() for f in files if f.name == "photos.credit.txt"), "")
     files = sorted(f for f in files if f.suffix.lower() in IMG | VID and not f.stem.endswith((".mask", ".depth")))
     if not files:
         return print("  skip (no clips/photos):", name)
@@ -330,8 +332,9 @@ def make(files, name, focus, kind, length, song, out, song_title=None, credit=""
 
     shutil.copy(song, JOB / f"song{song.suffix.lower()}")
     engine_props = prep_engine(engine, plan["drop"]) if style["mechanic"] == "sound" else None
-    if engine_props and engine_credit:  # keep the music credit too (it used to be replaced)
-        credit = "\n".join((credit.strip() or f"🎵 Music: {song_title or song.stem}", engine_credit))
+    extra = [c for c in (engine_credit if engine_props else "", photo_credit) if c]
+    if extra:  # keep the music credit first (it used to be replaced), then engine and photo credits
+        credit = "\n".join((credit.strip() or f"🎵 Music: {song_title or song.stem}", *extra))
     l1, l2, emoji = random.choice(HOOKS[kind])
     props = {"answer": name, "hook": [l1, l2], "emoji": emoji, "clips": clips,
              "plan": {k: plan[k] for k in ("length", "drop", "beats", "downbeats", "strong", "energy")},
@@ -344,18 +347,22 @@ def make(files, name, focus, kind, length, song, out, song_title=None, credit=""
         props["choices"] = choices_for(name, kind)
     (JOB / "props.json").write_text(json.dumps(props, ensure_ascii=False), encoding="utf-8")
 
-    base = f'npx remotion render src/index.ts Quiz "{out}" --props=public/job/props.json --log=error '
+    # quality: sharper frames (jpeg 95, default 80) and less compression (crf 16, default 18); --hq also renders at
+    # 1440x2560, which YouTube encodes with a better codec, so it looks sharper on phones (slower, local only)
+    hq = "--scale=1.3333333333333333 " if os.environ.get("CANVASFF_HQ") else ""
+    base = (f'npx remotion render src/index.ts Quiz "{out}" --props=public/job/props.json --log=error '
+            f"--jpeg-quality=95 --crf=16 {hq}")
     r = subprocess.run(base + os.environ.get("RENDER_FLAGS", ""),  # worker: --concurrency=$(nproc)
                        cwd=EDITOR, shell=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode:
         # Remotion's frame decoder (compositor) has crashed now and then under memory pressure; the same job then
         # renders fine. Retry once, gentler: one thread and a small video-frame cache.
-        first = (r.stderr or r.stdout)
+        first = (r.stderr or r.stdout).strip()
         print(f"  render crashed, retrying with 1 thread. Start of error:\n{first[:1500]}", flush=True)
         r = subprocess.run(base + "--concurrency=1 --offthreadvideo-cache-size-in-bytes=268435456",
                            cwd=EDITOR, shell=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode:
-        err = r.stderr or r.stdout
+        err = (r.stderr or r.stdout).strip()
         # keep the start (the real panic message) and the end (the stack)
         raise SystemExit(f"render failed for {name}:\n{err[:1500]}\n...\n{err[-800:]}")
     # loudness: -14 LUFS (YouTube's playback level), peaks under -1 dB, so every Short plays full and even;
@@ -392,10 +399,13 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--len", type=float, default=10, help="Short length in seconds (9-12 works best)")
     p.add_argument("--job", type=pathlib.Path, help="render one uploaded job folder (used by the GitHub Actions worker)")
+    p.add_argument("--hq", action="store_true", help="render 1440x2560 for the sharpest YouTube result (slower)")
     p.add_argument("--look", choices=["sound", "assemble", "sketch", "silhouette", "zoom", "glass", "pixel", "spotlight", "tiles"],
                    help="opening look (default: picked for you; 'sound' automatically when the folder has engine.mp3); "
                         "assemble/sketch/silhouette need photos")
     a = p.parse_args()
+    if a.hq:
+        os.environ["CANVASFF_HQ"] = "1"
     if a.job:
         return run_job(a.job)
 

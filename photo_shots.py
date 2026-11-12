@@ -17,7 +17,7 @@ def writer(path: pathlib.Path, w: int, h: int) -> subprocess.Popen:
     """ffmpeg reading raw RGB frames on stdin -> H.264 the editor can seek (no B-frames)."""
     return subprocess.Popen(
         ["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{w}x{h}", "-r", str(FPS), "-i", "-",
-         "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-bf", "0", "-g", "30", str(path)],
+         "-c:v", "libx264", "-preset", "fast", "-crf", "14", "-pix_fmt", "yuv420p", "-bf", "0", "-g", "30", str(path)],  # near-lossless: these are intermediates
         stdin=subprocess.PIPE,
     )
 

@@ -119,7 +119,8 @@ export const Reveal = ({ style, text, start }: { style: Style; text: string; sta
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const size = fitSize(style, text, 170);
-  const color = style.accent;
+  // the answer is always white: an accent colour can vanish on a car of the same colour (red on a red Lamborghini)
+  const color = "white";
   const base = textBase(style, size, color);
   const glow = base.textShadow; // no glow: just the soft readability shadow
   const f = frame - start * fps;
@@ -140,7 +141,8 @@ export const Reveal = ({ style, text, start }: { style: Style; text: string; sta
     const s = spring({ frame: f, fps, config: { damping: 8, stiffness: 260, mass: 0.8 } });
     return (
       <div style={{ ...row, transform: `rotate(-7deg) scale(${interpolate(s, [0, 1], [3, 1])})`, opacity: Math.min(1, s * 4) }}>
-        <span style={{ ...base, textShadow: glow, border: `10px solid ${color}`, borderRadius: 18, padding: `${size * 0.12}px ${size * 0.25}px`, background: "rgba(0,0,0,0.35)" }}>{text}</span>
+        {/* 80% size: the border + padding + tilt must still fit long names ("LAMBORGHINI AVENTADOR") */}
+        <span style={{ ...base, fontSize: size * 0.8, textShadow: glow, border: `8px solid ${color}`, borderRadius: 16, padding: `${size * 0.1}px ${size * 0.2}px`, background: "rgba(0,0,0,0.35)" }}>{text}</span>
       </div>
     );
   }
