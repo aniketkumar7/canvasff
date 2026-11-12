@@ -336,6 +336,8 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--len", type=float, default=10, help="Short length in seconds (9-12 works best)")
     p.add_argument("--job", type=pathlib.Path, help="render one uploaded job folder (used by the GitHub Actions worker)")
+    p.add_argument("--look", choices=["assemble", "sketch", "silhouette", "zoom", "glass", "pixel", "spotlight", "tiles"],
+                   help="opening look (default: picked for you); assemble/sketch/silhouette need photos")
     a = p.parse_args()
     if a.job:
         return run_job(a.job)
@@ -352,7 +354,8 @@ def main():
             song = random.choice(songs)
             print(f"making {out.name}  (song: {song.name})", flush=True)
             name, focus = parse_name(item.stem if item.is_file() else item.name)
-            make(list(item.iterdir()) if item.is_dir() else [item], name, focus, kind, a.len, song, out)
+            make(list(item.iterdir()) if item.is_dir() else [item], name, focus, kind, a.len, song, out,
+                 style={"mechanic": a.look} if a.look else None)
     print("done ->", ROOT / "output")
 
 
