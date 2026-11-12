@@ -15,7 +15,7 @@ import {
 } from "remotion";
 import { DEFAULT_STYLE, type Style } from "./style";
 import { Hook, Letters, PopIn, Reveal, textBase } from "./text";
-import { Choices, Glass, LookOverlays, Spotlight, Tiles } from "./mechanics";
+import { Choices, Glass, LookOverlays, SoundScreen, Spotlight, Tiles } from "./mechanics";
 
 const clampX = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
 /** riser.wav length (it peaks at its end = the drop) and whoosh.wav loudest moment; set when rendering them */
@@ -66,6 +66,8 @@ export type QuizProps = {
   style?: Partial<Style>;
   /** A/B/C options incl. the answer; shown when set. */
   choices?: string[];
+  /** sound quiz: the engine recording (trimmed to the guess phase) and its per-frame loudness 0-1 */
+  engine?: { src: string; levels: number[] };
   /** end prompt pill, e.g. "GOT IT? COMMENT 👇" */
   cta?: string;
 };
@@ -331,6 +333,7 @@ export const Quiz = (props: QuizProps) => {
       {style.mechanic === "glass" && <Glass drop={drop} strong={strong} />}
       {style.mechanic === "tiles" && <Tiles style={style} drop={drop} beats={beats} />}
       {style.mechanic === "spotlight" && <Spotlight style={style} drop={drop} />}
+      {style.mechanic === "sound" && props.engine && <SoundScreen style={style} levels={props.engine.levels} drop={drop} />}
       <LookOverlays style={style} downbeats={downbeats} />
 
       {/* vignette + dim + flash */}
@@ -394,11 +397,18 @@ export const Quiz = (props: QuizProps) => {
         </Sequence>
       ))}
 
+      {/* sound quiz: the engine recording is the clue, full volume through the guess phase */}
+      {style.mechanic === "sound" && props.engine && <Audio src={staticFile(props.engine.src)} volume={1} />}
+
       {music && (
         <Audio
           src={staticFile(music.src)}
           trimBefore={Math.round(music.start * fps)}
-          volume={(f) => interpolate(f / fps, [0, 0.3, length - 0.8, length], [0, 1, 1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" })}
+          volume={(f) =>
+            interpolate(f / fps, [0, 0.3, length - 0.8, length], [0, 1, 1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" }) *
+            // sound quiz: the engine is the clue, so the music stays low until the drop
+            (props.engine && style.mechanic === "sound" && f / fps < drop ? 0.15 : 1)
+          }
         />
       )}
     </AbsoluteFill>

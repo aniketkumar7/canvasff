@@ -151,6 +151,34 @@ def prep(src, fg, bg, grade=GRADES["clean"]):
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(src), "-vf", vf, *still, str(out)], check=True)
 
 
+def prep_engine(src, drop, fps=30):
+    """Loudest stretch of the engine recording, as long as the guess phase (+0.4 s tail), levelled, plus a
+    per-frame loudness curve (0-1) that drives the on-screen waveform."""
+    import librosa
+    import numpy as np
+
+    y, sr = librosa.load(str(src), sr=44100, mono=True)
+    need = int((drop + 0.4) * sr)
+    if len(y) > need:  # slide a window, keep the loudest part (revs, not idle silence)
+        hop = sr // 10
+        rms = librosa.feature.rms(y=y, frame_length=hop * 2, hop_length=hop)[0]
+        win = max(1, need // hop)
+        best = int(np.argmax(np.convolve(rms, np.ones(win), mode="valid"))) if len(rms) > win else 0
+        y = y[best * hop: best * hop + need]
+    out = JOB / "engine.wav"
+    import soundfile as sf
+
+    sf.write(str(out), y.astype(np.float32), sr)
+    lv = JOB / "engine.lv.wav"  # level it so every Short's engine hits equally hard, peaks under -1 dB
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(out), "-af", "loudnorm=I=-12:TP=-1:LRA=11", "-ar", "44100", str(lv)], check=True)
+    lv.replace(out)
+    y, sr = librosa.load(str(out), sr=44100, mono=True)
+    per = sr // fps
+    levels = [float(np.sqrt(np.mean(y[i:i + per] ** 2))) for i in range(0, len(y), per)]
+    top = max(levels) or 1.0
+    return {"src": "job/engine.wav", "levels": [round(v / top, 3) for v in levels]}
+
+
 def build_for(length):
     """Seconds before the answer. Analytics: viewers leave after ~5s, so reveal early (10s Short -> ~4s)."""
     return round(min(9.0, max(3.5, length * 0.42)), 1)
@@ -176,6 +204,8 @@ TITLE_POOL = {  # {k} = car/plane. Never the answer: it would spoil the quiz.
     "pixel": ["Can you name this pixelated {k}? 👾", "Guess the {k} before it gets clear 👾"],
     "spotlight": ["Only a spotlight. Name the {k} 🔦", "Guess the {k} in the dark 🔦"],
     "tiles": ["Guess the {k} before all tiles flip 🧩", "Name it with half the picture 🧩"],
+    "sound": ["Guess the {k} by its sound 🔊", "Name this {k} from the engine alone 👂", "Only real fans know this exhaust note 🔥",
+              "Close your eyes. Which {k} is this? 🔊"],
     "silhouette": ["Name this {k} from its shadow 🖤", "Only the outline. Which {k}? 🖤", "Guess the {k} by its shape 👀"],
     "choices": ["A, B or C? Guess the {k} 🤔", "Pick one: which {k} is it? 👇", "3 options, 1 right answer. Which {k}? 🎯"],
 }
@@ -228,6 +258,20 @@ def upload_text(name, kind, song_title, credit="", style=None):
 def make(files, name, focus, kind, length, song, out, song_title=None, credit="", style=None):
     """Render one Short to `out` (.mp4) and write its upload text next to it (.txt + .json)."""
     # .mask/.depth PNGs are photo_prep's caches, not footage
+    # an engine recording in the car folder (engine.mp3 / .wav / .ogg) turns this into a "guess by the sound" Short
+    engine = next((f for f in files if f.stem.lower() == "engine" and f.suffix.lower() in SONGS | {".ogg"}), None)
+    if not engine and (style or {}).get("mechanic") == "sound" and files:
+        # sound look asked for but no recording given: find a licensed one (Openverse) next to the photos
+        try:
+            from engine_sound import fetch
+
+            folder = files[0].parent
+            if (got := fetch(folder, name)) is not None:
+                engine = got
+                files = [*files, *(p for p in [folder / "engine.credit.txt"] if p.exists())]
+        except OSError as e:
+            print(f"  engine sound search failed: {e}", flush=True)
+    engine_credit = next((f.read_text(encoding="utf-8").strip() for f in files if f.name == "engine.credit.txt"), "")
     files = sorted(f for f in files if f.suffix.lower() in IMG | VID and not f.stem.endswith((".mask", ".depth")))
     if not files:
         return print("  skip (no clips/photos):", name)
@@ -238,7 +282,13 @@ def make(files, name, focus, kind, length, song, out, song_title=None, credit=""
     if plan["drop"] is None:  # no clear drop: reveal where the build-up would end
         plan["drop"] = build_for(length)
     photos = [f for f in files if f.suffix.lower() in IMG]
+    asked = (style or {}).get("mechanic")
     style = pick_style(style, bool(photos))
+    # sound quiz: whenever an engine recording is present (unless another look was asked for); never without one
+    if engine and asked in (None, "", "random", "sound"):
+        style["mechanic"] = "sound"
+    elif style["mechanic"] == "sound" and not engine:
+        style["mechanic"] = "zoom"
     if style["choices"] and len(name.split()) < 2:  # a brand alone ("Porsche") makes A/B/C unfair
         style["choices"] = False
 
@@ -279,11 +329,17 @@ def make(files, name, focus, kind, length, song, out, song_title=None, credit=""
         clips.append(clip)
 
     shutil.copy(song, JOB / f"song{song.suffix.lower()}")
+    engine_props = prep_engine(engine, plan["drop"]) if style["mechanic"] == "sound" else None
+    if engine_props and engine_credit:  # keep the music credit too (it used to be replaced)
+        credit = "\n".join((credit.strip() or f"🎵 Music: {song_title or song.stem}", engine_credit))
     l1, l2, emoji = random.choice(HOOKS[kind])
     props = {"answer": name, "hook": [l1, l2], "emoji": emoji, "clips": clips,
              "plan": {k: plan[k] for k in ("length", "drop", "beats", "downbeats", "strong", "energy")},
              "music": {"src": f"job/song{song.suffix.lower()}", "start": plan["start"]}, "style": style,
              "cta": random.choice(CTAS)}
+    if engine_props:
+        props["engine"] = engine_props
+        props["hook"] = ["GUESS THE CAR", "BY ITS SOUND"]
     if style["choices"]:
         props["choices"] = choices_for(name, kind)
     (JOB / "props.json").write_text(json.dumps(props, ensure_ascii=False), encoding="utf-8")
@@ -336,8 +392,9 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--len", type=float, default=10, help="Short length in seconds (9-12 works best)")
     p.add_argument("--job", type=pathlib.Path, help="render one uploaded job folder (used by the GitHub Actions worker)")
-    p.add_argument("--look", choices=["assemble", "sketch", "silhouette", "zoom", "glass", "pixel", "spotlight", "tiles"],
-                   help="opening look (default: picked for you); assemble/sketch/silhouette need photos")
+    p.add_argument("--look", choices=["sound", "assemble", "sketch", "silhouette", "zoom", "glass", "pixel", "spotlight", "tiles"],
+                   help="opening look (default: picked for you; 'sound' automatically when the folder has engine.mp3); "
+                        "assemble/sketch/silhouette need photos")
     a = p.parse_args()
     if a.job:
         return run_job(a.job)

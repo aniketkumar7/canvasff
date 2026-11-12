@@ -189,6 +189,63 @@ export const Choices = ({ style, choices, answer, drop }: { style: Style; choice
   );
 };
 
+// ---------- sound quiz: the engine is the only clue ----------
+
+/** Dark screen with a live waveform of the engine recording (levels = per-frame loudness 0-1). */
+export const SoundScreen = ({ style, levels, drop }: { style: Style; levels: number[]; drop: number }) => {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const t = frame / fps;
+  const out = interpolate(t, [drop - 0.15, drop], [1, 0], clamp);
+  if (out <= 0) return null;
+  const bars = 48;
+  const now = levels[Math.min(frame, levels.length - 1)] ?? 0;
+  return (
+    <AbsoluteFill style={{ background: "radial-gradient(ellipse at 50% 55%, #1b1d24 0%, #0b0c10 70%)", opacity: out }}>
+      {/* small cue: this one needs sound */}
+      <div style={{ position: "absolute", top: 640, width: "100%", display: "flex", justifyContent: "center" }}>
+        <span style={{ ...textBase(style, 34, "white"), fontWeight: 600, textShadow: "none", background: "rgba(255,255,255,0.1)", padding: "12px 26px", borderRadius: 999 }}>
+          Sound on
+        </span>
+      </div>
+      {/* waveform: newest level on the right, older ones scroll left */}
+      <div style={{ position: "absolute", top: 760, left: 90, right: 90, height: 420, display: "flex", alignItems: "center", gap: 8 }}>
+        {[...Array(bars).keys()].map((i) => {
+          const at = frame - (bars - 1 - i) * 2;
+          const v = at >= 0 ? (levels[Math.min(at, levels.length - 1)] ?? 0) : 0;
+          return (
+            <div
+              key={i}
+              style={{
+                flex: 1,
+                height: `${Math.max(3, v * 100)}%`,
+                borderRadius: 6,
+                background: style.accent,
+                opacity: 0.35 + 0.65 * (i / bars),
+              }}
+            />
+          );
+        })}
+      </div>
+      {/* a ring that breathes with the engine */}
+      <div
+        style={{
+          position: "absolute",
+          top: 1260,
+          left: "50%",
+          width: 120,
+          height: 120,
+          marginLeft: -60,
+          borderRadius: 60,
+          border: `4px solid ${style.accent}`,
+          transform: `scale(${1 + now * 0.5})`,
+          opacity: 0.5 + now * 0.5,
+        }}
+      />
+    </AbsoluteFill>
+  );
+};
+
 // ---------- look overlays ----------
 
 export const LookOverlays = ({ style, downbeats }: { style: Style; downbeats: number[] }) => {

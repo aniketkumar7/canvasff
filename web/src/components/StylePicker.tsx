@@ -5,6 +5,7 @@ import { cn } from "cn";
  *  Keep ids in sync with OPTIONS in make_short.py and STYLE in backend/app.py.
  *  Everything else (colour look, font, cuts, hook text) is mixed automatically per Short. */
 export const LOOKS = [
+  { id: "sound", label: "Engine sound", note: "Guess by the engine; a licensed recording is found for you" },
   { id: "assemble", label: "Assemble", note: "Pieces fly together on the beat", photos: true },
   { id: "silhouette", label: "Silhouette", note: "Glowing outline, colour on the drop", photos: true },
   { id: "sketch", label: "Sketch", note: "Chalk lines draw the car on the beat", photos: true },
